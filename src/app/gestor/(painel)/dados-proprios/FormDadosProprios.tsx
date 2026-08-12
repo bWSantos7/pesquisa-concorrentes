@@ -1,0 +1,126 @@
+"use client";
+
+import { useEffect, useState } from "react";
+import { useRouter } from "next/navigation";
+import { salvarDadosProprios } from "../../actions";
+
+type Item = { id: number; nome: string };
+
+export default function FormDadosProprios({
+  mesAno, regional, idCidade, idEmp, regionais, cidades, emps, atual,
+}: {
+  mesAno: string;
+  regional: string;
+  idCidade: string;
+  idEmp: string;
+  regionais: string[];
+  cidades: Item[];
+  emps: Item[];
+  atual: { estoque: number; vendas: number } | null;
+}) {
+  const router = useRouter();
+  const [estoque, setEstoque] = useState(atual ? String(atual.estoque) : "");
+  const [vendas, setVendas] = useState(atual ? String(atual.vendas) : "");
+  const [erro, setErro] = useState<string | null>(null);
+  const [ok, setOk] = useState(false);
+  const [salvando, setSalvando] = useState(false);
+
+  // Ressincroniza quando a seleção (e portanto os dados atuais) muda.
+  useEffect(() => {
+    setEstoque(atual ? String(atual.estoque) : "");
+    setVendas(atual ? String(atual.vendas) : "");
+    setOk(false);
+  }, [atual, idEmp, mesAno]);
+
+  function navegar(next: Partial<{ mes: string; regional: string; cidade: string; emp: string }>) {
+    const params = new URLSearchParams({ mes: mesAno });
+    if (regional) params.set("regional", regional);
+    if (idCidade) params.set("cidade", idCidade);
+    if (idEmp) params.set("emp", idEmp);
+    Object.entries(next).forEach(([k, v]) => (v ? params.set(k, v) : params.delete(k)));
+    if (next.regional !== undefined) { params.delete("cidade"); params.delete("emp"); }
+    if (next.cidade !== undefined) { params.delete("emp"); }
+    router.push(`/gestor/dados-proprios?${params.toString()}`);
+  }
+
+  async function salvar() {
+    setErro(null); setOk(false);
+    if (!idEmp || estoque === "" || vendas === "") {
+      setErro("Selecione o empreendimento e informe estoque e vendas.");
+      return;
+    }
+    setSalvando(true);
+    const r = await salvarDadosProprios({
+      id_empreendimento: Number(idEmp),
+      mes_ano: mesAno,
+      estoque: Number(estoque),
+      vendas: Number(vendas),
+    });
+    setSalvando(false);
+    if (r.ok) { setOk(true); router.refresh(); }
+    else setErro(r.erro);
+  }
+
+  return (
+    <div className="card grid max-w-2xl gap-4">
+      <div className="grid gap-4 sm:grid-cols-4">
+        <div className="sm:col-span-1">
+          <label className="rotulo">Competência</label>
+          <input type="month" className="campo !text-base !py-2" value={mesAno.slice(0, 7)}
+            onChange={(e) => navegar({ mes: `${e.target.value}-01` })} />
+        </div>
+        <div>
+          <label className="rotulo">Regional</label>
+          <select className="campo !text-base !py-2" value={regional}
+            onChange={(e) => navegar({ regional: e.target.value })}>
+            <option value="">Selecione…</option>
+            {regionais.map((r) => <option key={r} value={r}>{r}</option>)}
+          </select>
+        </div>
+        <div>
+          <label className="rotulo">Cidade</label>
+          <select className="campo !text-base !py-2" value={idCidade} disabled={!regional}
+            onChange={(e) => navegar({ cidade: e.target.value })}>
+            <option value="">Selecione…</option>
+            {cidades.map((c) => <option key={c.id} value={c.id}>{c.nome}</option>)}
+          </select>
+        </div>
+        <div>
+          <label className="rotulo">Empreendimento</label>
+          <select className="campo !text-base !py-2" value={idEmp} disabled={!idCidade}
+            onChange={(e) => navegar({ emp: e.target.value })}>
+            <option value="">Selecione…</option>
+            {emps.map((e) => <option key={e.id} value={e.id}>{e.nome}</option>)}
+          </select>
+        </div>
+      </div>
+
+      {idEmp && (
+        <>
+          <div className="grid grid-cols-2 gap-4">
+            <div>
+              <label className="rotulo">Estoque atual</label>
+              <input className="campo !text-base !py-2" inputMode="numeric" pattern="[0-9]*"
+                value={estoque} onChange={(e) => setEstoque(e.target.value.replace(/\D/g, ""))} />
+            </div>
+            <div>
+              <label className="rotulo">Vendas no mês</label>
+              <input className="campo !text-base !py-2" inputMode="numeric" pattern="[0-9]*"
+                value={vendas} onChange={(e) => setVendas(e.target.value.replace(/\D/g, ""))} />
+            </div>
+          </div>
+          {atual && (
+            <p className="text-xs text-ink/50">
+              Já existe registro nesta competência. Salvar irá atualizá-lo.
+            </p>
+          )}
+          {erro && <p role="alert" className="rounded-lg bg-red-50 px-4 py-3 text-sm text-red-700">{erro}</p>}
+          {ok && <p className="rounded-lg bg-brand/10 px-4 py-3 text-sm text-brand">Dados salvos.</p>}
+          <button className="btn-primary !py-3" onClick={salvar} disabled={salvando}>
+            {salvando ? "Salvando…" : "Salvar dados próprios"}
+          </button>
+        </>
+      )}
+    </div>
+  );
+}

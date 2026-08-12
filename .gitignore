@@ -1,0 +1,21 @@
+/node_modules
+/.next
+/out
+.env.local
+.env*.local
+*.tsbuildinfo
+next-env.d.ts
+
+# OS / editor
+.DS_Store
+Thumbs.db
+.vscode/*
+!.vscode/extensions.json
+
+# Railway / Vercel local state (nunca versionar)
+.railway/
+.vercel/
+
+# Logs
+npm-debug.log*
+*.log
