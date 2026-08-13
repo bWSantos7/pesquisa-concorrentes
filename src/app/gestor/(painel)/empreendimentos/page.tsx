@@ -1,0 +1,33 @@
+import { listarEmpreendimentosAdmin } from "@/lib/data/gestor";
+import { listarRegionais, listarCidades } from "@/lib/data/hierarquia";
+import GestaoEmpreendimentos from "./GestaoEmpreendimentos";
+
+export const dynamic = "force-dynamic";
+
+export default async function EmpreendimentosPage({
+  searchParams,
+}: {
+  searchParams: { regional?: string; cidade?: string };
+}) {
+  const regional = searchParams.regional ?? "";
+  const idCidade = searchParams.cidade ?? "";
+
+  const [regionais, itens] = await Promise.all([
+    listarRegionais(),
+    listarEmpreendimentosAdmin({
+      regional: regional || undefined,
+      idCidade: idCidade ? Number(idCidade) : undefined,
+    }),
+  ]);
+  const cidades = regional ? await listarCidades(regional) : [];
+
+  return (
+    <GestaoEmpreendimentos
+      regional={regional}
+      idCidade={idCidade}
+      regionais={regionais.map((r) => r.regional)}
+      cidades={cidades.map((c) => ({ id: c.id_cidade, nome: c.cidade }))}
+      itens={itens}
+    />
+  );
+}

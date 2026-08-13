@@ -252,6 +252,11 @@ function Formulario({
       {modalNovo && (
         <ModalNovoConcorrente
           idEmpreendimento={Number(idEmp)}
+          contexto={{
+            regional,
+            cidade: cidades.find((c) => c.valor === idCidade)?.texto ?? "",
+            empreendimento: emps.find((e) => e.valor === idEmp)?.texto ?? "",
+          }}
           onFechar={() => setModalNovo(false)}
           onCriado={async (id) => {
             setModalNovo(false);
@@ -295,9 +300,10 @@ function Select({
 }
 
 function ModalNovoConcorrente({
-  idEmpreendimento, onFechar, onCriado,
+  idEmpreendimento, contexto, onFechar, onCriado,
 }: {
   idEmpreendimento: number;
+  contexto: { regional: string; cidade: string; empreendimento: string };
   onFechar: () => void;
   onCriado: (id: number) => void;
 }) {
@@ -317,6 +323,12 @@ function ModalNovoConcorrente({
     <Modal titulo="Cadastrar novo concorrente" onFechar={onFechar} alinhamento="base">
       <h2 className="text-lg font-semibold text-ink">Cadastrar novo concorrente</h2>
       <p className="mt-1 text-sm text-ink/60">Informe apenas o nome. O código é gerado automaticamente.</p>
+      {/* Contexto já definido pela seleção em cascata (seção 13: exibir
+          Regional/Cidade/Empreendimento, mesmo preenchidos automaticamente). */}
+      <div className="mt-3 rounded-lg bg-black/[.03] px-3 py-2 text-sm text-ink/70">
+        <p>{contexto.regional} · {contexto.cidade}</p>
+        <p className="font-medium text-ink">{contexto.empreendimento}</p>
+      </div>
       <div className="mt-4">
         <label className="rotulo" htmlFor="nc">Nome do concorrente</label>
         <input id="nc" className="campo" value={nome}

@@ -28,7 +28,18 @@ export interface FiltroPesquisas {
   idAgente?: string;
   limite?: number;
   offset?: number;
+  /** Coluna de ordenação (seção 35: "permitir ordenação e paginação"). */
+  ordenarPor?: "data" | "concorrente" | "estoque" | "vendas";
+  direcao?: "asc" | "desc";
 }
+
+/** Whitelist de colunas ordenáveis — nunca interpolar a coluna vinda do usuário direto no SQL. */
+const COLUNAS_ORDENACAO: Record<NonNullable<FiltroPesquisas["ordenarPor"]>, string> = {
+  data: "cm.coletado_em",
+  concorrente: "c.concorrente",
+  estoque: "cm.estoque",
+  vendas: "cm.vendas",
+};
 
 export async function listarPesquisas(f: FiltroPesquisas): Promise<LinhaPesquisa[]> {
   const where: string[] = [];
@@ -45,6 +56,9 @@ export async function listarPesquisas(f: FiltroPesquisas): Promise<LinhaPesquisa
   if (f.regional) where.push(`cid.regional = ${bind(f.regional)}`);
   if (f.idCidade) where.push(`emp.id_cidade = ${bind(f.idCidade)}`);
 
+  const colunaOrdenacao = COLUNAS_ORDENACAO[f.ordenarPor ?? "data"] ?? COLUNAS_ORDENACAO.data;
+  const direcao = f.direcao === "asc" ? "asc" : "desc";
+
   const limite = bind(f.limite ?? 50);
   const offset = bind(f.offset ?? 0);
 
@@ -58,7 +72,7 @@ export async function listarPesquisas(f: FiltroPesquisas): Promise<LinhaPesquisa
        join empreendimentos emp on emp.id_empreendimento = c.id_empreendimento
        join cidades cid       on cid.id_cidade = emp.id_cidade
        ${where.length ? `where ${where.join(" and ")}` : ""}
-       order by cm.coletado_em desc
+       order by ${colunaOrdenacao} ${direcao}, cm.id_coleta
        limit ${limite} offset ${offset}`,
     params,
   );
@@ -112,6 +126,85 @@ export async function obterDadosProprios(
 export async function listarAgentesOpcoes(): Promise<{ id_agente: string; nome: string }[]> {
   const { rows } = await db().query<{ id_agente: string; nome: string }>(
     `select id_agente, nome from agentes_campo order by nome`,
+  );
+  return rows;
+}
+
+export interface LinhaEmpreendimento {
+  id_empreendimento: number;
+  id_cidade: number;
+  empreendimento: string;
+  ativo: boolean;
+  cidade: string;
+  regional: string;
+}
+
+export interface FiltroCadastro {
+  regional?: string;
+  idCidade?: number;
+}
+
+/**
+ * Lista empreendimentos para a área administrativa (seção 26) — inclui
+ * inativos (diferente de `listarEmpreendimentos` em data/hierarquia.ts,
+ * que só traz ativos e serve os seletores em cascata do fluxo do Agente).
+ */
+export async function listarEmpreendimentosAdmin(f: FiltroCadastro = {}): Promise<LinhaEmpreendimento[]> {
+  const where: string[] = [];
+  const params: unknown[] = [];
+  const bind = (value: unknown) => { params.push(value); return `$${params.length}`; };
+
+  if (f.regional) where.push(`cid.regional = ${bind(f.regional)}`);
+  if (f.idCidade) where.push(`emp.id_cidade = ${bind(f.idCidade)}`);
+
+  const { rows } = await db().query<LinhaEmpreendimento>(
+    `select emp.id_empreendimento, emp.id_cidade, emp.empreendimento, emp.ativo,
+            cid.cidade, cid.regional
+       from empreendimentos emp
+       join cidades cid on cid.id_cidade = emp.id_cidade
+       ${where.length ? `where ${where.join(" and ")}` : ""}
+       order by cid.regional, cid.cidade, emp.empreendimento`,
+    params,
+  );
+  return rows;
+}
+
+export interface LinhaConcorrente {
+  id_concorrente: number;
+  id_empreendimento: number;
+  concorrente: string;
+  ativo: boolean;
+  empreendimento: string;
+  cidade: string;
+  regional: string;
+}
+
+/**
+ * Lista concorrentes para a área administrativa (seção 26) — inclui
+ * inativos, com a hierarquia completa para exibição/filtro (diferente de
+ * `listarConcorrentes` em data/hierarquia.ts, que só serve os seletores em
+ * cascata do fluxo do Agente e só traz ativos de um empreendimento).
+ */
+export async function listarConcorrentesAdmin(
+  f: FiltroCadastro & { idEmpreendimento?: number } = {},
+): Promise<LinhaConcorrente[]> {
+  const where: string[] = [];
+  const params: unknown[] = [];
+  const bind = (value: unknown) => { params.push(value); return `$${params.length}`; };
+
+  if (f.regional) where.push(`cid.regional = ${bind(f.regional)}`);
+  if (f.idCidade) where.push(`emp.id_cidade = ${bind(f.idCidade)}`);
+  if (f.idEmpreendimento) where.push(`c.id_empreendimento = ${bind(f.idEmpreendimento)}`);
+
+  const { rows } = await db().query<LinhaConcorrente>(
+    `select c.id_concorrente, c.id_empreendimento, c.concorrente, c.ativo,
+            emp.empreendimento, cid.cidade, cid.regional
+       from concorrentes c
+       join empreendimentos emp on emp.id_empreendimento = c.id_empreendimento
+       join cidades cid         on cid.id_cidade = emp.id_cidade
+       ${where.length ? `where ${where.join(" and ")}` : ""}
+       order by cid.regional, cid.cidade, emp.empreendimento, c.concorrente`,
+    params,
   );
   return rows;
 }

@@ -30,7 +30,8 @@ dados reais.
   automática em `America/Sao_Paulo`.
 - **Gestor** (`/gestor`): login por e-mail/senha (hash bcrypt, sessão em
   cookie httpOnly assinado). Dashboard, pesquisas, gestão de agentes,
-  cadastro de concorrentes e dados próprios do empreendimento.
+  gestão de concorrentes e empreendimentos, e dados próprios do
+  empreendimento.
 
 ## Estrutura
 
@@ -84,7 +85,10 @@ cidades, 18 empreendimentos e 35 concorrentes.
 Depois, entre em `/gestor/login` com as credenciais definidas. Cadastre os
 agentes de campo reais pela tela **Agentes** (o telefone é normalizado para
 somente dígitos e precisa ser único) — ou use `npm run seed:agentes` para
-alguns agentes de exemplo em ambiente local.
+alguns agentes de exemplo em ambiente local. Empreendimentos e concorrentes
+adicionais podem ser cadastrados pelas telas **Empreendimentos** e
+**Concorrentes** (o concorrente também pode ser criado inline pelo Agente
+durante a coleta — seção 13 da especificação).
 
 ## Executar
 

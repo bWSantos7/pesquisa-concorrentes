@@ -3,10 +3,14 @@ import { redirect } from "next/navigation";
 import { gestorAtual } from "@/lib/auth/gestor";
 import { logoutGestor } from "../actions";
 
+// Seção 26: menu mínimo (Dashboard, Pesquisas, Agentes, Concorrentes,
+// Empreendimentos) + Dados próprios.
 const NAV = [
   { href: "/gestor", label: "Dashboard" },
   { href: "/gestor/pesquisas", label: "Pesquisas" },
   { href: "/gestor/agentes", label: "Agentes" },
+  { href: "/gestor/concorrentes", label: "Concorrentes" },
+  { href: "/gestor/empreendimentos", label: "Empreendimentos" },
   { href: "/gestor/dados-proprios", label: "Dados próprios" },
 ];
 

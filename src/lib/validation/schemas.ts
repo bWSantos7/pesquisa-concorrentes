@@ -31,6 +31,36 @@ export const novoConcorrenteSchema = z.object({
   nome: z.string().trim().min(1, "Nome do concorrente é obrigatório"),
 });
 
+/**
+ * Edição de concorrente pelo Gestor (seção 2: "cadastrar concorrentes;
+ * editar cadastros permitidos"). O empreendimento pai não é editável aqui:
+ * o ID do concorrente carrega o prefixo do empreendimento original
+ * (seção 12), então trocar o pai quebraria essa invariante.
+ */
+export const concorrenteEdicaoSchema = z.object({
+  concorrente: z.string().trim().min(1, "Nome do concorrente é obrigatório"),
+  ativo: z.boolean().default(true),
+});
+
+/**
+ * Cadastro de empreendimento pelo Gestor (seção 10). Diferente do
+ * concorrente, o id_empreendimento NÃO é gerado — é informado pelo gestor
+ * (é o código de origem que vira prefixo dos concorrentes, seção 12).
+ */
+export const empreendimentoSchema = z.object({
+  id_empreendimento: z.number().int().positive(),
+  id_cidade: z.number().int().positive(),
+  empreendimento: z.string().trim().min(1, "Nome é obrigatório"),
+  ativo: z.boolean().default(true),
+});
+
+/** Edição de empreendimento: o ID não muda depois de criado (ver acima). */
+export const empreendimentoEdicaoSchema = z.object({
+  id_cidade: z.number().int().positive(),
+  empreendimento: z.string().trim().min(1, "Nome é obrigatório"),
+  ativo: z.boolean().default(true),
+});
+
 /** Estoque e vendas: inteiros >= 0 (seções 20 e 21). */
 const inteiroNaoNegativo = z
   .number({ invalid_type_error: "Informe um número inteiro" })
@@ -58,5 +88,8 @@ export const dadosPropriosSchema = z.object({
 export type LoginAgenteInput = z.infer<typeof loginAgenteSchema>;
 export type AgenteInput = z.infer<typeof agenteSchema>;
 export type NovoConcorrenteInput = z.infer<typeof novoConcorrenteSchema>;
+export type ConcorrenteEdicaoInput = z.infer<typeof concorrenteEdicaoSchema>;
+export type EmpreendimentoInput = z.infer<typeof empreendimentoSchema>;
+export type EmpreendimentoEdicaoInput = z.infer<typeof empreendimentoEdicaoSchema>;
 export type ColetaInput = z.infer<typeof coletaSchema>;
 export type DadosPropriosInput = z.infer<typeof dadosPropriosSchema>;

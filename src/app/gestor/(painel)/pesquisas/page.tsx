@@ -9,12 +9,15 @@ export const dynamic = "force-dynamic";
 
 const PAGINA = 50;
 
+type Ordenavel = "data" | "concorrente" | "estoque" | "vendas";
+const CHAVES_ORDENAVEIS: Ordenavel[] = ["data", "concorrente", "estoque", "vendas"];
+
 export default async function PesquisasPage({
   searchParams,
 }: {
   searchParams: {
     p?: string; mes?: string; regional?: string; cidade?: string;
-    emp?: string; conc?: string; agente?: string;
+    emp?: string; conc?: string; agente?: string; sort?: string; dir?: string;
   };
 }) {
   const pagina = Math.max(1, Number(searchParams.p ?? "1"));
@@ -26,6 +29,11 @@ export default async function PesquisasPage({
   const idEmp = searchParams.emp ? Number(searchParams.emp) : undefined;
   const idConc = searchParams.conc ? Number(searchParams.conc) : undefined;
   const idAgente = searchParams.agente || undefined;
+
+  const ordenarPor: Ordenavel = CHAVES_ORDENAVEIS.includes(searchParams.sort as Ordenavel)
+    ? (searchParams.sort as Ordenavel)
+    : "data";
+  const direcao: "asc" | "desc" = searchParams.dir === "asc" ? "asc" : "desc";
 
   // Opções para os selects (dependentes onde a hierarquia exige).
   const [regionais, agentes] = await Promise.all([
@@ -45,10 +53,12 @@ export default async function PesquisasPage({
     idAgente,
     limite: PAGINA,
     offset,
+    ordenarPor,
+    direcao,
   });
 
-  // Preserva os filtros ativos na paginação.
-  const qs = (p: number) => {
+  // Preserva filtros + ordenação ativos ao trocar de página ou de coluna.
+  const qs = (over: { p?: number; sort?: Ordenavel; dir?: "asc" | "desc" }) => {
     const params = new URLSearchParams();
     if (searchParams.mes) params.set("mes", searchParams.mes);
     if (regional) params.set("regional", regional);
@@ -56,9 +66,31 @@ export default async function PesquisasPage({
     if (searchParams.emp) params.set("emp", searchParams.emp);
     if (searchParams.conc) params.set("conc", searchParams.conc);
     if (idAgente) params.set("agente", idAgente);
-    params.set("p", String(p));
+    params.set("sort", over.sort ?? ordenarPor);
+    params.set("dir", over.dir ?? direcao);
+    params.set("p", String(over.p ?? pagina));
     return `/gestor/pesquisas?${params.toString()}`;
   };
+
+  // Clicar na coluna já ativa inverte a direção; trocar de coluna começa em desc.
+  function hrefOrdenar(coluna: Ordenavel) {
+    const novaDirecao = coluna === ordenarPor && direcao === "desc" ? "asc" : "desc";
+    return qs({ sort: coluna, dir: novaDirecao, p: 1 });
+  }
+
+  function CabecalhoOrdenavel({ coluna, children, alinhar }: {
+    coluna: Ordenavel; children: React.ReactNode; alinhar?: "right";
+  }) {
+    return (
+      <th className={`px-4 py-3 font-medium ${alinhar === "right" ? "text-right" : ""}`}>
+        <a href={hrefOrdenar(coluna)} className="inline-flex items-center gap-1 hover:text-ink"
+          aria-label={`Ordenar por ${children}`}>
+          {children}
+          {ordenarPor === coluna && <span aria-hidden>{direcao === "asc" ? "▲" : "▼"}</span>}
+        </a>
+      </th>
+    );
+  }
 
   return (
     <div className="grid gap-6">
@@ -82,15 +114,15 @@ export default async function PesquisasPage({
         <table className="w-full text-sm">
           <thead>
             <tr className="border-b border-black/[.06] text-left text-ink/50">
-              <th className="px-4 py-3 font-medium">Data/hora</th>
+              <CabecalhoOrdenavel coluna="data">Data/hora</CabecalhoOrdenavel>
               <th className="px-4 py-3 font-medium">Agente</th>
               <th className="px-4 py-3 font-medium">Regional</th>
               <th className="px-4 py-3 font-medium">Cidade</th>
               <th className="px-4 py-3 font-medium">Empreendimento</th>
-              <th className="px-4 py-3 font-medium">Concorrente</th>
+              <CabecalhoOrdenavel coluna="concorrente">Concorrente</CabecalhoOrdenavel>
               <th className="px-4 py-3 font-medium">Comp.</th>
-              <th className="px-4 py-3 text-right font-medium">Estoque</th>
-              <th className="px-4 py-3 text-right font-medium">Vendas</th>
+              <CabecalhoOrdenavel coluna="estoque" alinhar="right">Estoque</CabecalhoOrdenavel>
+              <CabecalhoOrdenavel coluna="vendas" alinhar="right">Vendas</CabecalhoOrdenavel>
             </tr>
           </thead>
           <tbody>
@@ -121,13 +153,13 @@ export default async function PesquisasPage({
       <div className="flex items-center justify-between text-sm">
         <a className="btn-ghost aria-disabled:pointer-events-none aria-disabled:opacity-40"
           aria-disabled={pagina <= 1}
-          href={pagina > 1 ? qs(pagina - 1) : undefined}>
+          href={pagina > 1 ? qs({ p: pagina - 1 }) : undefined}>
           ← Anterior
         </a>
         <span className="text-ink/50">Página {pagina}</span>
         <a className="btn-ghost aria-disabled:pointer-events-none aria-disabled:opacity-40"
           aria-disabled={linhas.length < PAGINA}
-          href={linhas.length === PAGINA ? qs(pagina + 1) : undefined}>
+          href={linhas.length === PAGINA ? qs({ p: pagina + 1 }) : undefined}>
           Próxima →
         </a>
       </div>
