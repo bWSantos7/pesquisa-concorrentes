@@ -4,7 +4,7 @@
  * as coletas dos concorrentes (COLETAS_MENSAIS) para a competência escolhida,
  * e delega os cálculos à camada de domínio.
  */
-import { serviceClient } from "@/lib/supabase/clients";
+import { db } from "@/lib/db/pool";
 import { calcularDashboard, type ItemMercado, type ResultadoDashboard } from "@/lib/domain/dashboard";
 
 export interface DashboardParams {
@@ -19,29 +19,30 @@ export async function montarDashboard(
   temDadosProprios: boolean;
   totalConcorrentesComColeta: number;
 }> {
-  const db = serviceClient();
+  const pool = db();
 
-  const { data: emp } = await db
-    .from("empreendimentos")
-    .select("empreendimento")
-    .eq("id_empreendimento", params.idEmpreendimento)
-    .maybeSingle();
+  const empRes = await pool.query<{ empreendimento: string }>(
+    `select empreendimento from empreendimentos where id_empreendimento = $1`,
+    [params.idEmpreendimento],
+  );
+  const emp = empRes.rows[0] ?? null;
 
-  // Próprio
-  const { data: proprio } = await db
-    .from("dados_proprios_mensais")
-    .select("estoque, vendas")
-    .eq("id_empreendimento", params.idEmpreendimento)
-    .eq("mes_ano", params.mesAno)
-    .maybeSingle();
+  const proprioRes = await pool.query<{ estoque: number; vendas: number }>(
+    `select estoque, vendas
+       from dados_proprios_mensais
+      where id_empreendimento = $1 and mes_ano = $2`,
+    [params.idEmpreendimento, params.mesAno],
+  );
+  const proprio = proprioRes.rows[0] ?? null;
 
-  // Concorrentes com coleta na competência
-  const { data: concorrentes } = await db
-    .from("concorrentes")
-    .select("id_concorrente, concorrente, coletas_mensais!inner(estoque, vendas, mes_ano)")
-    .eq("id_empreendimento", params.idEmpreendimento)
-    .eq("ativo", true)
-    .eq("coletas_mensais.mes_ano", params.mesAno);
+  // Concorrentes ativos com coleta na competência (equivalente a inner join).
+  const concRes = await pool.query<{ id_concorrente: number; concorrente: string; estoque: number; vendas: number }>(
+    `select c.id_concorrente, c.concorrente, cm.estoque, cm.vendas
+       from concorrentes c
+       join coletas_mensais cm on cm.id_concorrente = c.id_concorrente and cm.mes_ano = $2
+      where c.id_empreendimento = $1 and c.ativo = true`,
+    [params.idEmpreendimento, params.mesAno],
+  );
 
   const itens: ItemMercado[] = [];
 
@@ -54,16 +55,12 @@ export async function montarDashboard(
     });
   }
 
-  let totalConcorrentesComColeta = 0;
-  for (const c of concorrentes ?? []) {
-    const coleta = Array.isArray(c.coletas_mensais) ? c.coletas_mensais[0] : c.coletas_mensais;
-    if (!coleta) continue;
-    totalConcorrentesComColeta += 1;
+  for (const c of concRes.rows) {
     itens.push({
       rotulo: c.concorrente,
       proprio: false,
-      estoque: coleta.estoque,
-      vendas: coleta.vendas,
+      estoque: c.estoque,
+      vendas: c.vendas,
     });
   }
 
@@ -72,6 +69,6 @@ export async function montarDashboard(
     ...resultado,
     nomeEmpreendimento: emp?.empreendimento ?? null,
     temDadosProprios: Boolean(proprio),
-    totalConcorrentesComColeta,
+    totalConcorrentesComColeta: concRes.rows.length,
   };
 }

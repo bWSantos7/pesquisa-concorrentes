@@ -7,13 +7,20 @@ normalizada `Comparativo_Normalizado_App_v2.xlsx`.
 
 ## Stack
 
-Next.js 14 (App Router) · TypeScript · Tailwind CSS · PostgreSQL/Supabase ·
-Supabase Auth (gestores) · Zod (validação) · Vitest (testes). Regras de negócio
-e cálculos ficam na camada de domínio (`src/lib/domain`), isolados de UI e acesso
-a dados. O projeto usa Next.js **14.2.35** (último patch de segurança da linha
-14.2.x); o `postcss` é fixado em ≥ 8.5.26 via `overrides`. Um `npm audit` ainda
-aponta advisories de ferramentas de desenvolvimento (Vitest/Vite/ESLint) cuja
-correção exigiria major bumps — sem impacto no runtime de produção.
+Next.js 14 (App Router) · TypeScript · Tailwind CSS · PostgreSQL (driver `pg`,
+SQL direto — sem ORM) · Autenticação própria do Gestor (bcrypt + sessão JWT em
+cookie httpOnly, via `jose`) · Zod (validação) · Vitest (testes). Regras de
+negócio e cálculos ficam na camada de domínio (`src/lib/domain`), isolados de
+UI e acesso a dados. Não há dependência de nenhum serviço externo de
+Auth/BaaS — o único serviço externo é o próprio PostgreSQL.
+
+O projeto usa Next.js **14.2.35** (último patch da linha 14.2.x); o `postcss`
+é fixado em ≥ 8.5.26 via `overrides`. **Atenção:** `npm audit` aponta várias
+advisories de severidade alta no próprio `next`, cuja correção completa exige
+subir para a major 15 ou 16 (mudança de API — ex.: `cookies()`/`headers()`
+passam a ser assíncronos —, não feita aqui por estar fora do escopo desta
+preparação para deploy). Avalie esse upgrade antes de ir para produção com
+dados reais.
 
 ## Duas áreas
 
@@ -21,102 +28,96 @@ correção exigiria major bumps — sem impacto no runtime de produção.
   ativo — sem senha, sem autocadastro. Fluxo mobile-first: Regional → Cidade →
   Empreendimento → Concorrente → Estoque → Vendas. Competência (mês/ano)
   automática em `America/Sao_Paulo`.
-- **Gestor** (`/gestor`): autenticado via Supabase Auth. Dashboard, pesquisas,
-  gestão de agentes, cadastro de concorrentes e dados próprios do empreendimento.
+- **Gestor** (`/gestor`): login por e-mail/senha (hash bcrypt, sessão em
+  cookie httpOnly assinado). Dashboard, pesquisas, gestão de agentes,
+  cadastro de concorrentes e dados próprios do empreendimento.
 
 ## Estrutura
 
 ```
-supabase/migrations/   0001 schema · 0002 geração de ID · 0003 RLS · 0004 seed
-src/lib/domain/        telefone, competência, cálculos do dashboard (com testes)
-src/lib/data/          acesso a dados (hierarquia, dashboard, gestor)
-src/lib/supabase/      clientes (anon, servidor, service role) e guard de gestor
-src/lib/validation/    schemas Zod
-src/app/agente/        fluxo do agente (UI + server actions)
-src/app/gestor/        área administrativa (login + painel guardado)
-scripts/               seed de gestor e agentes
-tests/                 testes das fórmulas e do domínio
+db/migrations/          0001 schema · 0002 geração de ID · 0003 seed
+src/lib/domain/          telefone, competência, cálculos do dashboard (com testes)
+src/lib/data/             acesso a dados (hierarquia, dashboard, gestor) — SQL direto
+src/lib/db/                pool de conexão PostgreSQL
+src/lib/auth/              sessão do gestor (JWT), hash de senha (bcrypt), guard
+src/lib/validation/     schemas Zod
+src/app/agente/           fluxo do agente (UI + server actions)
+src/app/gestor/            área administrativa (login + painel guardado)
+src/app/api/health/     healthcheck (Railway)
+scripts/                    migrate.mjs (migrations + bootstrap do gestor) e seed de agentes de exemplo
+tests/                        testes das fórmulas e do domínio
 ```
 
 ## Instalação
 
-Requisitos: Node.js 18+ e um projeto Supabase.
+Requisitos: Node.js 18+ e um PostgreSQL (local, Docker ou o Postgres do
+Railway).
 
 ```bash
 npm install
-cp .env.example .env.local   # preencha com as chaves do seu projeto
+cp .env.example .env.local   # preencha DATABASE_URL, SESSION_SECRET etc.
 ```
 
-Variáveis (ver `.env.example`):
+Variáveis (ver `.env.example` para a lista completa e comentada):
 
-- `NEXT_PUBLIC_SUPABASE_URL`, `NEXT_PUBLIC_SUPABASE_ANON_KEY` — públicas.
-- `SUPABASE_SERVICE_ROLE_KEY` — **secreta**, somente servidor. Usada no fluxo do
-  agente (que não tem sessão Auth) e nos seeds. Nunca exposta ao navegador.
+- `DATABASE_URL` — connection string do Postgres.
+- `SESSION_SECRET` — **secreta**, assina a sessão do Gestor.
+- `GESTOR_EMAIL` / `GESTOR_SENHA` / `GESTOR_NOME` — usadas uma única vez pelo
+  script de migração para criar o primeiro gestor.
 
-## Banco de dados (migrations + seed de dados)
+## Banco de dados (migrations + bootstrap do primeiro gestor)
 
-Aplique os arquivos de `supabase/migrations/` em ordem, via SQL Editor do
-Supabase ou CLI:
+Não há passo manual: `npm run migrate` (ou `npm start`, que já roda a
+migração antes de subir o servidor) aplica os arquivos de `db/migrations/`
+em ordem — de forma idempotente, controlada por uma tabela `_migrations` — e,
+se `GESTOR_EMAIL`/`GESTOR_SENHA` estiverem definidas e ainda não existir um
+gestor com esse e-mail, cria o primeiro login.
 
 ```bash
-# via Supabase CLI (projeto linkado)
-supabase db push
-# ou cole cada arquivo, em ordem, no SQL Editor:
-# 0001_schema.sql → 0002_id_concorrente.sql → 0003_rls.sql → 0004_seed.sql
+DATABASE_URL="postgres://..." GESTOR_EMAIL="voce@empresa.com" \
+GESTOR_SENHA="uma-senha-forte" GESTOR_NOME="Seu Nome" npm run migrate
 ```
 
-`0004_seed.sql` carrega os cadastros mestres da planilha: 4 regionais, 12
+`0003_seed.sql` carrega os cadastros mestres da planilha: 4 regionais, 12
 cidades, 18 empreendimentos e 35 concorrentes.
 
-## Seed de acesso (gestor + agentes)
-
-Cria o primeiro gestor (Supabase Auth + tabela `gestores`) e agentes de exemplo:
-
-```bash
-GESTOR_EMAIL="voce@empresa.com" GESTOR_SENHA="uma-senha-forte" \
-GESTOR_NOME="Seu Nome" npm run seed:agentes
-```
-
-Depois, entre em `/gestor/login` com essas credenciais. Cadastre os agentes reais
-pela tela **Agentes** (o telefone é normalizado para somente dígitos e precisa ser
-único).
+Depois, entre em `/gestor/login` com as credenciais definidas. Cadastre os
+agentes de campo reais pela tela **Agentes** (o telefone é normalizado para
+somente dígitos e precisa ser único) — ou use `npm run seed:agentes` para
+alguns agentes de exemplo em ambiente local.
 
 ## Executar
 
 ```bash
 npm run dev        # desenvolvimento
 npm run build      # build de produção
-npm run start      # servir o build
+npm run start      # roda a migração e serve o build
 ```
 
 ## Deploy no Railway
 
-O Railway hospeda apenas a aplicação Next.js — o banco de dados, Auth e RLS
-continuam no Supabase (serviço externo gerenciado). Não é necessário
-provisionar Postgres no Railway.
-
-1. **Antes do primeiro deploy**, aplique as migrations no Supabase (seção
-   "Banco de dados" acima) e rode `npm run seed:agentes` localmente para criar
-   o primeiro gestor — isso não faz parte do processo de build do Railway.
-2. Conecte o repositório no Railway (New Project → Deploy from GitHub repo).
-   O builder é detectado automaticamente (Railpack); `railway.json` já define
-   `build`, `start` e o healthcheck (`/api/health`).
-3. Cadastre em **Service → Variables**, antes do primeiro build:
-   - `NEXT_PUBLIC_SUPABASE_URL`
-   - `NEXT_PUBLIC_SUPABASE_ANON_KEY`
-   - `SUPABASE_SERVICE_ROLE_KEY` (marque como *sealed*)
-
-   As duas primeiras são embutidas no bundle do navegador durante `next
-   build`, então precisam existir **antes** do build — o Railway já injeta as
-   variáveis do serviço tanto no build quanto no runtime, então basta
-   cadastrá-las antes de disparar o primeiro deploy.
+1. Adicione um serviço **PostgreSQL** ao projeto Railway e conecte o
+   repositório (New Project → Deploy from GitHub repo). O builder é
+   detectado automaticamente (Railpack); `railway.json` já define `build`,
+   `start` e o healthcheck (`/api/health`).
+2. Cadastre em **Service → Variables**, antes do primeiro deploy:
+   - `DATABASE_URL` → referencie o Postgres do projeto: `${{Postgres.DATABASE_URL}}`
+   - `SESSION_SECRET` (marque como *sealed*) — gere com
+     `node -e "console.log(require('crypto').randomBytes(48).toString('base64'))"`
+   - `GESTOR_EMAIL`, `GESTOR_SENHA` (sealed), `GESTOR_NOME` — bootstrap do
+     primeiro login
+3. Dispare o deploy. O `start` do serviço já roda `node scripts/migrate.mjs`
+   antes do `next start`: schema, seed de dados mestres e o primeiro gestor
+   sobem juntos, sem SQL Editor nem shell manual.
 4. O Railway define `PORT` automaticamente; o `next start` já lê essa
    variável nativamente (e escuta em `0.0.0.0` por padrão). Não defina `PORT`
    manualmente.
 5. Gere o domínio público em Service → Settings → Networking, ou rode
    `railway domain`.
 
-Nenhum outro passo manual é necessário após o deploy.
+Nenhum outro passo manual é necessário após o deploy — em redeploys
+seguintes, o `migrate.mjs` roda de novo e só aplica o que ainda não foi
+aplicado (é seguro rodar em todo boot).
 
 ## Qualidade
 
@@ -144,7 +145,14 @@ não devem ser codificados até que a regra seja esclarecida.
 ## Segurança
 
 - Validação no backend com Zod; nunca confiar apenas no frontend.
-- RLS por perfil; agente opera via service role no servidor, sem credenciais no
-  navegador.
-- Telefone normalizado e único; senhas apenas no provedor de Auth.
+- Sem RLS: a única credencial de banco (`DATABASE_URL`) nunca chega ao
+  navegador — toda a autorização por perfil é feita na camada de aplicação
+  (Server Actions), tanto para o Gestor (`gestorAtual()`) quanto para o
+  Agente (telefone conferido a cada ação).
+- Senha do Gestor com hash bcrypt (custo 12); sessão em cookie httpOnly,
+  `secure` em produção, assinada (JWT/HS256) com `SESSION_SECRET`.
+  Desativar um gestor (`ativo=false`) revoga o acesso imediatamente, mesmo
+  com o token ainda válido, porque `gestorAtual()` relê o status no banco a
+  cada requisição.
+- Telefone normalizado e único.
 - Geração do ID de concorrente no backend, com lock contra condição de corrida.

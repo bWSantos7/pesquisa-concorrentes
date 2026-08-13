@@ -7,6 +7,11 @@
 -- Hierarquia:  REGIONAL -> CIDADE -> EMPREENDIMENTO -> CONCORRENTE
 -- Coletas:     AGENTE 1:N COLETA ; CONCORRENTE 1:N COLETA
 -- Próprios:    EMPREENDIMENTO 1:N DADOS_PROPRIOS_MENSAIS
+--
+-- Banco: PostgreSQL simples (Railway), sem dependência de nenhum serviço
+-- externo. gen_random_uuid() é nativo desde o PostgreSQL 13 (sem extensão).
+-- Autenticação e autorização do Gestor são inteiramente da aplicação
+-- (bcrypt + sessão JWT em cookie — ver src/lib/auth); não há RLS aqui.
 -- =====================================================================
 
 -- ---------------------------------------------------------------------
@@ -42,6 +47,23 @@ create table if not exists empreendimentos (
 create index if not exists idx_empreendimentos_id_cidade on empreendimentos (id_cidade);
 
 -- ---------------------------------------------------------------------
+-- GESTORES  (seção 2, 3) — perfil administrativo.
+-- Autenticação própria: senha_hash guarda o hash bcrypt (nunca a senha).
+-- email é único ignorando maiúsculas/minúsculas.
+-- ---------------------------------------------------------------------
+create table if not exists gestores (
+  id_gestor  uuid primary key default gen_random_uuid(),
+  nome       text not null,
+  email      text not null,
+  senha_hash text not null,
+  perfil     text not null default 'gestor' check (perfil = 'gestor'),
+  ativo      boolean not null default true,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now()
+);
+create unique index if not exists uq_gestores_email_lower on gestores (lower(email));
+
+-- ---------------------------------------------------------------------
 -- CONCORRENTES  (seção 11, 12) — EMPREENDIMENTOS 1:N CONCORRENTES
 -- id_concorrente é inteiro cujo PREFIXO é o id_empreendimento pai.
 -- É gerado no backend (ver 0002_id_concorrente.sql), por isso a PK é
@@ -55,28 +77,14 @@ create table if not exists concorrentes (
   ativo             boolean not null default true,
   created_at        timestamptz not null default now(),
   updated_at        timestamptz not null default now(),
-  created_by        uuid,
-  updated_by        uuid
+  created_by        uuid references gestores (id_gestor),
+  updated_by        uuid references gestores (id_gestor)
 );
 create index if not exists idx_concorrentes_id_empreendimento on concorrentes (id_empreendimento);
 
 -- Unicidade de nome por empreendimento ignorando caixa e espaços nas pontas.
 create unique index if not exists uq_concorrente_nome_por_emp
   on concorrentes (id_empreendimento, lower(btrim(concorrente)));
-
--- ---------------------------------------------------------------------
--- GESTORES  (seção 2, 3) — perfil administrativo.
--- id_gestor referencia auth.users (Supabase Auth). Senha NUNCA aqui.
--- ---------------------------------------------------------------------
-create table if not exists gestores (
-  id_gestor  uuid primary key,          -- = auth.users.id
-  nome       text not null,
-  email      text not null unique,
-  perfil     text not null default 'gestor' check (perfil = 'gestor'),
-  ativo      boolean not null default true,
-  created_at timestamptz not null default now(),
-  updated_at timestamptz not null default now()
-);
 
 -- ---------------------------------------------------------------------
 -- AGENTES_CAMPO  (seção 4, 5, 6) — acesso apenas pelo telefone.
@@ -90,8 +98,8 @@ create table if not exists agentes_campo (
   ativo      boolean not null default true,
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now(),
-  created_by uuid,
-  updated_by uuid,
+  created_by uuid references gestores (id_gestor),
+  updated_by uuid references gestores (id_gestor),
   constraint chk_telefone_digitos check (telefone ~ '^[0-9]+$')
 );
 create index if not exists idx_agentes_campo_telefone on agentes_campo (telefone);

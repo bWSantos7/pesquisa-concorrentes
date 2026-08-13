@@ -1,6 +1,6 @@
 import Link from "next/link";
 import { redirect } from "next/navigation";
-import { gestorAtual } from "@/lib/supabase/gestor";
+import { gestorAtual } from "@/lib/auth/gestor";
 import { logoutGestor } from "../actions";
 
 const NAV = [

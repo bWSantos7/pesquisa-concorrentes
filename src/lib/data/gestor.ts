@@ -1,8 +1,10 @@
 /**
  * Consultas da Área do Gestor (seções 35, 36).
- * Executadas no servidor com o service client após o guard de gestor.
+ * SQL direto via pool pg, executadas no servidor após o guard de gestor
+ * (ver src/lib/auth/gestor.ts). Sem RLS: a autorização é 100% na camada de
+ * aplicação, já que a conexão com o banco é única e nunca chega ao navegador.
  */
-import { serviceClient } from "@/lib/supabase/clients";
+import { db } from "@/lib/db/pool";
 
 export interface LinhaPesquisa {
   id_coleta: string;
@@ -29,69 +31,38 @@ export interface FiltroPesquisas {
 }
 
 export async function listarPesquisas(f: FiltroPesquisas): Promise<LinhaPesquisa[]> {
-  const db = serviceClient();
-  let q = db
-    .from("coletas_mensais")
-    .select(
-      `id_coleta, coletado_em, mes_ano, estoque, vendas,
-       agentes_campo!inner(nome),
-       concorrentes!inner(
-         concorrente, id_empreendimento,
-         empreendimentos!inner(
-           empreendimento, id_cidade,
-           cidades!inner(cidade, regional)
-         )
-       )`,
-    )
-    .order("coletado_em", { ascending: false });
-
-  if (f.mesAno) q = q.eq("mes_ano", f.mesAno);
-  if (f.idConcorrente) q = q.eq("id_concorrente", f.idConcorrente);
-  if (f.idAgente) q = q.eq("id_agente", f.idAgente);
-  if (f.idEmpreendimento) q = q.eq("concorrentes.id_empreendimento", f.idEmpreendimento);
-  if (f.regional) q = q.eq("concorrentes.empreendimentos.cidades.regional", f.regional);
-  if (f.idCidade) q = q.eq("concorrentes.empreendimentos.id_cidade", f.idCidade);
-
-  const limite = f.limite ?? 50;
-  const offset = f.offset ?? 0;
-  q = q.range(offset, offset + limite - 1);
-
-  const { data, error } = await q;
-  if (error) throw error;
-
-  type LinhaRaw = {
-    id_coleta: string;
-    coletado_em: string;
-    mes_ano: string;
-    estoque: number;
-    vendas: number;
-    agentes_campo: { nome: string };
-    concorrentes: {
-      concorrente: string;
-      empreendimentos: {
-        empreendimento: string;
-        cidades: { cidade: string; regional: string };
-      };
-    };
+  const where: string[] = [];
+  const params: unknown[] = [];
+  const bind = (value: unknown) => {
+    params.push(value);
+    return `$${params.length}`;
   };
 
-  return ((data ?? []) as unknown as LinhaRaw[]).map((r) => {
-    const conc = r.concorrentes;
-    const emp = conc.empreendimentos;
-    const cid = emp.cidades;
-    return {
-      id_coleta: r.id_coleta,
-      coletado_em: r.coletado_em,
-      agente: r.agentes_campo.nome,
-      regional: cid.regional,
-      cidade: cid.cidade,
-      empreendimento: emp.empreendimento,
-      concorrente: conc.concorrente,
-      mes_ano: r.mes_ano,
-      estoque: r.estoque,
-      vendas: r.vendas,
-    };
-  });
+  if (f.mesAno) where.push(`cm.mes_ano = ${bind(f.mesAno)}`);
+  if (f.idConcorrente) where.push(`cm.id_concorrente = ${bind(f.idConcorrente)}`);
+  if (f.idAgente) where.push(`cm.id_agente = ${bind(f.idAgente)}`);
+  if (f.idEmpreendimento) where.push(`c.id_empreendimento = ${bind(f.idEmpreendimento)}`);
+  if (f.regional) where.push(`cid.regional = ${bind(f.regional)}`);
+  if (f.idCidade) where.push(`emp.id_cidade = ${bind(f.idCidade)}`);
+
+  const limite = bind(f.limite ?? 50);
+  const offset = bind(f.offset ?? 0);
+
+  const { rows } = await db().query<LinhaPesquisa>(
+    `select cm.id_coleta, cm.coletado_em, cm.mes_ano, cm.estoque, cm.vendas,
+            ag.nome as agente, cid.regional, cid.cidade,
+            emp.empreendimento, c.concorrente
+       from coletas_mensais cm
+       join agentes_campo ag  on ag.id_agente = cm.id_agente
+       join concorrentes c    on c.id_concorrente = cm.id_concorrente
+       join empreendimentos emp on emp.id_empreendimento = c.id_empreendimento
+       join cidades cid       on cid.id_cidade = emp.id_cidade
+       ${where.length ? `where ${where.join(" and ")}` : ""}
+       order by cm.coletado_em desc
+       limit ${limite} offset ${offset}`,
+    params,
+  );
+  return rows;
 }
 
 export interface LinhaAgente {
@@ -104,34 +75,15 @@ export interface LinhaAgente {
 }
 
 export async function listarAgentes(): Promise<LinhaAgente[]> {
-  const db = serviceClient();
-  const { data, error } = await db
-    .from("agentes_campo")
-    .select("id_agente, nome, telefone, ativo, created_at, coletas_mensais(coletado_em)")
-    .order("nome");
-  if (error) throw error;
-
-  type AgenteRaw = {
-    id_agente: string;
-    nome: string;
-    telefone: string;
-    ativo: boolean;
-    created_at: string;
-    coletas_mensais: { coletado_em: string }[] | null;
-  };
-
-  return ((data ?? []) as unknown as AgenteRaw[]).map((a) => {
-    const datas: string[] = (a.coletas_mensais ?? []).map((c) => c.coletado_em);
-    const ultima = datas.length ? datas.sort().at(-1)! : null;
-    return {
-      id_agente: a.id_agente,
-      nome: a.nome,
-      telefone: a.telefone,
-      ativo: a.ativo,
-      created_at: a.created_at,
-      ultima_coleta: ultima,
-    };
-  });
+  const { rows } = await db().query<LinhaAgente>(
+    `select a.id_agente, a.nome, a.telefone, a.ativo, a.created_at,
+            max(cm.coletado_em) as ultima_coleta
+       from agentes_campo a
+       left join coletas_mensais cm on cm.id_agente = a.id_agente
+      group by a.id_agente
+      order by a.nome`,
+  );
+  return rows;
 }
 
 export interface DadoProprio {
@@ -147,24 +99,19 @@ export async function obterDadosProprios(
   idEmpreendimento: number,
   mesAno: string,
 ): Promise<DadoProprio | null> {
-  const db = serviceClient();
-  const { data, error } = await db
-    .from("dados_proprios_mensais")
-    .select("id_empreendimento, mes_ano, estoque, vendas, atualizado_em")
-    .eq("id_empreendimento", idEmpreendimento)
-    .eq("mes_ano", mesAno)
-    .maybeSingle();
-  if (error) throw error;
-  return data ?? null;
+  const { rows } = await db().query<DadoProprio>(
+    `select id_empreendimento, mes_ano, estoque, vendas, atualizado_em
+       from dados_proprios_mensais
+      where id_empreendimento = $1 and mes_ano = $2`,
+    [idEmpreendimento, mesAno],
+  );
+  return rows[0] ?? null;
 }
 
 /** Opções de agente para filtros (id + nome), ordenadas por nome. */
 export async function listarAgentesOpcoes(): Promise<{ id_agente: string; nome: string }[]> {
-  const db = serviceClient();
-  const { data, error } = await db
-    .from("agentes_campo")
-    .select("id_agente, nome")
-    .order("nome");
-  if (error) throw error;
-  return data ?? [];
+  const { rows } = await db().query<{ id_agente: string; nome: string }>(
+    `select id_agente, nome from agentes_campo order by nome`,
+  );
+  return rows;
 }

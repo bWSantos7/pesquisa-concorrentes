@@ -3,9 +3,9 @@
 /**
  * Server Actions da Área do Agente (seções 4, 13, 22–24).
  * Toda regra crítica é validada no backend (seção 40). O agente não tem
- * sessão Supabase Auth: usamos o service client no servidor.
+ * login/sessão: o telefone é conferido a cada ação direto no banco.
  */
-import { serviceClient } from "@/lib/supabase/clients";
+import { db } from "@/lib/db/pool";
 import {
   loginAgenteSchema,
   novoConcorrenteSchema,
@@ -36,24 +36,21 @@ export async function identificarAgente(
   }
   const telefone = parsed.data.telefone; // já normalizado
 
-  const db = serviceClient();
-  const { data, error } = await db
-    .from("agentes_campo")
-    .select("id_agente, nome, ativo")
-    .eq("telefone", telefone)
-    .maybeSingle();
-
-  if (error) return { ok: false, erro: "Erro ao consultar. Tente novamente." };
+  const { rows } = await db().query<{ id_agente: string; nome: string; ativo: boolean }>(
+    `select id_agente, nome, ativo from agentes_campo where telefone = $1`,
+    [telefone],
+  );
+  const agente = rows[0];
 
   // Mesma mensagem para inexistente e inativo (seção 4).
-  if (!data || !data.ativo) {
+  if (!agente || !agente.ativo) {
     return {
       ok: false,
       erro:
         "Telefone não localizado. Verifique o número informado ou entre em contato com o responsável.",
     };
   }
-  return { ok: true, data: { id_agente: data.id_agente, nome: data.nome } };
+  return { ok: true, data: { id_agente: agente.id_agente, nome: agente.nome } };
 }
 
 // Seletores em cascata expostos como actions para o cliente.
@@ -64,7 +61,7 @@ export async function actConcorrentes(idEmp: number) { return listarConcorrentes
 
 /**
  * Cadastro de novo concorrente durante a coleta (seção 13).
- * ID gerado no backend via RPC transacional com lock (seção 12).
+ * ID gerado no backend via função SQL transacional com lock (seção 12).
  */
 export async function cadastrarConcorrente(input: {
   id_empreendimento: number;
@@ -75,21 +72,20 @@ export async function cadastrarConcorrente(input: {
     return { ok: false, erro: parsed.error.issues[0]?.message ?? "Dados inválidos." };
   }
 
-  const db = serviceClient();
-  const { data, error } = await db.rpc("inserir_concorrente", {
-    p_id_empreendimento: parsed.data.id_empreendimento,
-    p_nome: parsed.data.nome,
-    p_created_by: null,
-  });
-
-  if (error) {
-    if (error.code === "23505" || /duplicad/i.test(error.message)) {
+  try {
+    const { rows } = await db().query<{ id_concorrente: number; concorrente: string }>(
+      `select id_concorrente, concorrente from inserir_concorrente($1, $2, $3)`,
+      [parsed.data.id_empreendimento, parsed.data.nome, null],
+    );
+    const row = rows[0];
+    return { ok: true, data: { id_concorrente: row.id_concorrente, concorrente: row.concorrente } };
+  } catch (e) {
+    const erro = e as { code?: string; message?: string };
+    if (erro.code === "23505" || /duplicad/i.test(erro.message ?? "")) {
       return { ok: false, erro: "Já existe um concorrente com esse nome neste empreendimento." };
     }
     return { ok: false, erro: "Não foi possível cadastrar o concorrente." };
   }
-  const row = Array.isArray(data) ? data[0] : data;
-  return { ok: true, data: { id_concorrente: row.id_concorrente, concorrente: row.concorrente } };
 }
 
 export interface ResumoColeta {
@@ -128,26 +124,25 @@ export async function salvarColeta(input: {
     return { ok: false, erro: parsed.error.issues[0]?.message ?? "Dados inválidos." };
   }
 
-  const db = serviceClient();
+  const pool = db();
   const mes_ano = competenciaVigente();
 
   // Confere agente ativo (seção 24: agente identificado).
-  const { data: agente } = await db
-    .from("agentes_campo")
-    .select("id_agente, ativo")
-    .eq("id_agente", parsed.data.id_agente)
-    .maybeSingle();
+  const { rows: agenteRows } = await pool.query<{ ativo: boolean }>(
+    `select ativo from agentes_campo where id_agente = $1`,
+    [parsed.data.id_agente],
+  );
+  const agente = agenteRows[0];
   if (!agente || !agente.ativo) {
     return { ok: false, erro: "Sessão do agente inválida. Identifique-se novamente." };
   }
 
   // Coleta existente para o concorrente/mês?
-  const { data: existente } = await db
-    .from("coletas_mensais")
-    .select("id_coleta")
-    .eq("id_concorrente", parsed.data.id_concorrente)
-    .eq("mes_ano", mes_ano)
-    .maybeSingle();
+  const { rows: existenteRows } = await pool.query<{ id_coleta: string }>(
+    `select id_coleta from coletas_mensais where id_concorrente = $1 and mes_ano = $2`,
+    [parsed.data.id_concorrente, mes_ano],
+  );
+  const existente = existenteRows[0];
 
   if (existente && !parsed.data.atualizar) {
     return {
@@ -159,15 +154,14 @@ export async function salvarColeta(input: {
   }
 
   if (existente && parsed.data.atualizar) {
-    const { error } = await db
-      .from("coletas_mensais")
-      .update({
-        estoque: parsed.data.estoque,
-        vendas: parsed.data.vendas,
-        id_agente: parsed.data.id_agente, // registra quem atualizou (seção 23)
-      })
-      .eq("id_coleta", existente.id_coleta);
-    if (error) return { ok: false, erro: "Não foi possível atualizar a coleta." };
+    try {
+      await pool.query(
+        `update coletas_mensais set estoque = $1, vendas = $2, id_agente = $3 where id_coleta = $4`,
+        [parsed.data.estoque, parsed.data.vendas, parsed.data.id_agente, existente.id_coleta],
+      );
+    } catch {
+      return { ok: false, erro: "Não foi possível atualizar a coleta." };
+    }
     return {
       ok: true,
       data: {
@@ -182,15 +176,15 @@ export async function salvarColeta(input: {
   }
 
   // Inserção nova.
-  const { error } = await db.from("coletas_mensais").insert({
-    id_agente: parsed.data.id_agente,
-    id_concorrente: parsed.data.id_concorrente,
-    mes_ano,
-    estoque: parsed.data.estoque,
-    vendas: parsed.data.vendas,
-  });
-  if (error) {
-    if (error.code === "23505") {
+  try {
+    await pool.query(
+      `insert into coletas_mensais (id_agente, id_concorrente, mes_ano, estoque, vendas)
+       values ($1, $2, $3, $4, $5)`,
+      [parsed.data.id_agente, parsed.data.id_concorrente, mes_ano, parsed.data.estoque, parsed.data.vendas],
+    );
+  } catch (e) {
+    const erro = e as { code?: string };
+    if (erro.code === "23505") {
       // corrida: alguém inseriu no meio tempo
       return {
         ok: false,

@@ -2,33 +2,47 @@
 
 /**
  * Server Actions da Área do Gestor (seções 3, 36, 25).
- * Autenticação via Supabase Auth; administração via service client após
- * confirmar que o solicitante é gestor ativo.
+ * Autenticação própria (bcrypt + sessão JWT em cookie httpOnly — ver
+ * src/lib/auth); administração via SQL direto após confirmar que o
+ * solicitante é gestor ativo.
  */
 import { cookies } from "next/headers";
 import { redirect } from "next/navigation";
-import { serverClient, serviceClient } from "@/lib/supabase/clients";
-import { gestorAtual } from "@/lib/supabase/gestor";
+import { db } from "@/lib/db/pool";
+import { gestorAtual } from "@/lib/auth/gestor";
+import { COOKIE_SESSAO, SESSAO_MAX_AGE_SEGUNDOS, criarSessao } from "@/lib/auth/session";
+import { verificarSenha } from "@/lib/auth/senha";
 import { agenteSchema, dadosPropriosSchema } from "@/lib/validation/schemas";
 
 type R<T = void> = { ok: true; data?: T } | { ok: false; erro: string };
 
 export async function loginGestor(email: string, senha: string): Promise<R> {
-  const supabase = serverClient(cookies());
-  const { error } = await supabase.auth.signInWithPassword({ email, password: senha });
-  if (error) return { ok: false, erro: "E-mail ou senha inválidos." };
+  const emailNormalizado = email.trim().toLowerCase();
+  const { rows } = await db().query<{ id_gestor: string; senha_hash: string; ativo: boolean }>(
+    `select id_gestor, senha_hash, ativo from gestores where lower(email) = $1`,
+    [emailNormalizado],
+  );
+  const gestor = rows[0];
+  // Mesma mensagem para e-mail inexistente, senha errada e conta inativa —
+  // evita confirmar a existência de uma conta a quem tenta adivinhar.
+  if (!gestor || !gestor.ativo) return { ok: false, erro: "E-mail ou senha inválidos." };
 
-  const g = await gestorAtual();
-  if (!g) {
-    await supabase.auth.signOut();
-    return { ok: false, erro: "Acesso restrito a gestores ativos." };
-  }
+  const senhaOk = await verificarSenha(senha, gestor.senha_hash);
+  if (!senhaOk) return { ok: false, erro: "E-mail ou senha inválidos." };
+
+  const token = await criarSessao(gestor.id_gestor);
+  cookies().set(COOKIE_SESSAO, token, {
+    httpOnly: true,
+    secure: process.env.NODE_ENV === "production",
+    sameSite: "lax",
+    path: "/",
+    maxAge: SESSAO_MAX_AGE_SEGUNDOS,
+  });
   return { ok: true };
 }
 
 export async function logoutGestor() {
-  const supabase = serverClient(cookies());
-  await supabase.auth.signOut();
+  cookies().set(COOKIE_SESSAO, "", { httpOnly: true, path: "/", maxAge: 0 });
   redirect("/gestor/login");
 }
 
@@ -45,19 +59,22 @@ export async function criarAgente(input: {
   const parsed = agenteSchema.safeParse(input);
   if (!parsed.success) return { ok: false, erro: parsed.error.issues[0].message };
 
-  const db = serviceClient();
+  const pool = db();
   // Verifica duplicidade de telefone normalizado (seção 36).
-  const { data: existe } = await db
-    .from("agentes_campo").select("id_agente")
-    .eq("telefone", parsed.data.telefone).maybeSingle();
-  if (existe) return { ok: false, erro: "Já existe um agente com este telefone." };
+  const { rows: existe } = await pool.query<{ id_agente: string }>(
+    `select id_agente from agentes_campo where telefone = $1`,
+    [parsed.data.telefone],
+  );
+  if (existe[0]) return { ok: false, erro: "Já existe um agente com este telefone." };
 
-  const { error } = await db.from("agentes_campo").insert({
-    nome: parsed.data.nome,
-    telefone: parsed.data.telefone,
-    ativo: parsed.data.ativo,
-  });
-  if (error) return { ok: false, erro: "Não foi possível cadastrar o agente." };
+  try {
+    await pool.query(
+      `insert into agentes_campo (nome, telefone, ativo) values ($1, $2, $3)`,
+      [parsed.data.nome, parsed.data.telefone, parsed.data.ativo],
+    );
+  } catch {
+    return { ok: false, erro: "Não foi possível cadastrar o agente." };
+  }
   return { ok: true };
 }
 
@@ -68,25 +85,32 @@ export async function editarAgente(id: string, input: {
   const parsed = agenteSchema.safeParse(input);
   if (!parsed.success) return { ok: false, erro: parsed.error.issues[0].message };
 
-  const db = serviceClient();
-  const { data: outro } = await db
-    .from("agentes_campo").select("id_agente")
-    .eq("telefone", parsed.data.telefone).neq("id_agente", id).maybeSingle();
-  if (outro) return { ok: false, erro: "Telefone já usado por outro agente." };
+  const pool = db();
+  const { rows: outro } = await pool.query<{ id_agente: string }>(
+    `select id_agente from agentes_campo where telefone = $1 and id_agente <> $2`,
+    [parsed.data.telefone, id],
+  );
+  if (outro[0]) return { ok: false, erro: "Telefone já usado por outro agente." };
 
-  const { error } = await db.from("agentes_campo")
-    .update({ nome: parsed.data.nome, telefone: parsed.data.telefone, ativo: parsed.data.ativo })
-    .eq("id_agente", id);
-  if (error) return { ok: false, erro: "Não foi possível salvar as alterações." };
+  try {
+    await pool.query(
+      `update agentes_campo set nome = $1, telefone = $2, ativo = $3 where id_agente = $4`,
+      [parsed.data.nome, parsed.data.telefone, parsed.data.ativo, id],
+    );
+  } catch {
+    return { ok: false, erro: "Não foi possível salvar as alterações." };
+  }
   return { ok: true };
 }
 
 /** Ativa/inativa (nunca exclui fisicamente — seção 6). */
 export async function definirStatusAgente(id: string, ativo: boolean): Promise<R> {
   await exigirGestor();
-  const db = serviceClient();
-  const { error } = await db.from("agentes_campo").update({ ativo }).eq("id_agente", id);
-  if (error) return { ok: false, erro: "Não foi possível alterar o status." };
+  try {
+    await db().query(`update agentes_campo set ativo = $1 where id_agente = $2`, [ativo, id]);
+  } catch {
+    return { ok: false, erro: "Não foi possível alterar o status." };
+  }
   return { ok: true };
 }
 
@@ -98,18 +122,20 @@ export async function salvarDadosProprios(input: {
   const parsed = dadosPropriosSchema.safeParse(input);
   if (!parsed.success) return { ok: false, erro: parsed.error.issues[0].message };
 
-  const db = serviceClient();
-  const { error } = await db.from("dados_proprios_mensais").upsert(
-    {
-      id_empreendimento: parsed.data.id_empreendimento,
-      mes_ano: parsed.data.mes_ano,
-      estoque: parsed.data.estoque,
-      vendas: parsed.data.vendas,
-      atualizado_por: g.id_gestor,
-      atualizado_em: new Date().toISOString(),
-    },
-    { onConflict: "id_empreendimento,mes_ano" },
-  );
-  if (error) return { ok: false, erro: "Não foi possível salvar os dados próprios." };
+  try {
+    await db().query(
+      `insert into dados_proprios_mensais
+         (id_empreendimento, mes_ano, estoque, vendas, atualizado_por, atualizado_em)
+       values ($1, $2, $3, $4, $5, now())
+       on conflict (id_empreendimento, mes_ano) do update
+         set estoque = excluded.estoque,
+             vendas = excluded.vendas,
+             atualizado_por = excluded.atualizado_por,
+             atualizado_em = now()`,
+      [parsed.data.id_empreendimento, parsed.data.mes_ano, parsed.data.estoque, parsed.data.vendas, g.id_gestor],
+    );
+  } catch {
+    return { ok: false, erro: "Não foi possível salvar os dados próprios." };
+  }
   return { ok: true };
 }

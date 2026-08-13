@@ -1,5 +1,5 @@
 -- =====================================================================
--- 0004_seed.sql — dados iniciais (seção 42)
+-- 0003_seed.sql — dados iniciais (seção 42)
 -- Gerado a partir de Comparativo_Normalizado_App_v2.xlsx
 -- Somente cadastros mestres. Sem histórico removido da modelagem.
 -- =====================================================================
