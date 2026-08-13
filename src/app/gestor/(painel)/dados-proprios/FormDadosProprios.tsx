@@ -62,11 +62,11 @@ export default function FormDadosProprios({
   }
 
   return (
-    <div className="card grid max-w-2xl gap-4">
+    <div className="card grid max-w-4xl gap-4">
       <div className="grid gap-4 sm:grid-cols-4">
         <div className="sm:col-span-1">
           <label className="rotulo">Competência</label>
-          <input type="month" className="campo !text-base !py-2" value={mesAno.slice(0, 7)}
+          <input type="month" className="campo !px-2 !py-2 !text-sm" value={mesAno.slice(0, 7)}
             onChange={(e) => navegar({ mes: `${e.target.value}-01` })} />
         </div>
         <div>

@@ -55,7 +55,7 @@ export default function FiltrosPesquisas({
       <div className="grid gap-4 sm:grid-cols-3 lg:grid-cols-6">
         <div>
           <label className="rotulo">Competência</label>
-          <input type="month" className="campo !text-base !py-2" value={mes ? mes.slice(0, 7) : ""}
+          <input type="month" className="campo !px-2 !py-2 !text-sm" value={mes ? mes.slice(0, 7) : ""}
             onChange={(e) => navegar({ mes: e.target.value ? `${e.target.value}-01` : "" })} />
         </div>
         <div>

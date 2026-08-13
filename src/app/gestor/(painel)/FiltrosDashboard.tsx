@@ -35,7 +35,7 @@ export default function FiltrosDashboard({
     <div className="card grid gap-4 sm:grid-cols-4">
       <div>
         <label className="rotulo">Competência</label>
-        <input type="month" className="campo !text-base !py-2" value={mesInput}
+        <input type="month" className="campo !px-2 !py-2 !text-sm" value={mesInput}
           onChange={(e) => navegar({ mes: `${e.target.value}-01` })} />
       </div>
       <div>
