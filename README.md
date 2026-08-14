@@ -30,13 +30,19 @@ dados reais.
   automática em `America/Sao_Paulo`.
 - **Gestor** (`/gestor`): login por e-mail/senha (hash bcrypt, sessão em
   cookie httpOnly assinado). Dashboard, pesquisas, gestão de agentes,
-  gestão de concorrentes e empreendimentos, e dados próprios do
-  empreendimento.
+  gestão de outros gestores, gestão de concorrentes e empreendimentos, e
+  dados próprios do empreendimento.
+
+> Gestores podem cadastrar outros gestores (tela **Gestores**) — extensão
+> pedida pelo usuário, além do escopo original da especificação. Sem
+> exclusão física (só inativação); um gestor nunca pode inativar a própria
+> conta nem o último gestor ativo, para nunca travar o acesso
+> administrativo do sistema.
 
 ## Estrutura
 
 ```
-db/migrations/          0001 schema · 0002 geração de ID · 0003 seed
+db/migrations/          0001 schema · 0002 geração de ID · 0003 seed · 0004 auditoria de gestores
 src/lib/domain/          telefone, competência, cálculos do dashboard (com testes)
 src/lib/data/             acesso a dados (hierarquia, dashboard, gestor) — SQL direto
 src/lib/db/                pool de conexão PostgreSQL

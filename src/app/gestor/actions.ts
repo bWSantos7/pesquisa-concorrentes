@@ -11,7 +11,7 @@ import { redirect } from "next/navigation";
 import { db } from "@/lib/db/pool";
 import { gestorAtual } from "@/lib/auth/gestor";
 import { COOKIE_SESSAO, SESSAO_MAX_AGE_SEGUNDOS, criarSessao } from "@/lib/auth/session";
-import { verificarSenha } from "@/lib/auth/senha";
+import { verificarSenha, hashSenha } from "@/lib/auth/senha";
 import {
   agenteSchema,
   dadosPropriosSchema,
@@ -19,6 +19,8 @@ import {
   concorrenteEdicaoSchema,
   empreendimentoSchema,
   empreendimentoEdicaoSchema,
+  gestorSchema,
+  gestorEdicaoSchema,
 } from "@/lib/validation/schemas";
 
 type R<T = void> = { ok: true; data?: T } | { ok: false; erro: string };
@@ -280,6 +282,111 @@ export async function salvarDadosProprios(input: {
     );
   } catch {
     return { ok: false, erro: "Não foi possível salvar os dados próprios." };
+  }
+  return { ok: true };
+}
+
+/**
+ * Cadastro de gestor por outro gestor — extensão pedida pelo usuário, além
+ * do escopo original da especificação. Sem convite por e-mail nem tela de
+ * "esqueci minha senha": a senha inicial é definida diretamente no
+ * formulário pelo gestor que está cadastrando.
+ */
+export async function criarGestor(input: {
+  nome: string; email: string; senha: string; ativo: boolean;
+}): Promise<R> {
+  const g = await exigirGestor();
+  const parsed = gestorSchema.safeParse(input);
+  if (!parsed.success) return { ok: false, erro: parsed.error.issues[0].message };
+
+  const pool = db();
+  const { rows: existe } = await pool.query<{ id_gestor: string }>(
+    `select id_gestor from gestores where lower(email) = lower($1)`,
+    [parsed.data.email],
+  );
+  if (existe[0]) return { ok: false, erro: "Já existe um gestor com este e-mail." };
+
+  const senhaHash = await hashSenha(parsed.data.senha);
+  try {
+    await pool.query(
+      `insert into gestores (nome, email, senha_hash, ativo, created_by, updated_by)
+       values ($1, $2, $3, $4, $5, $5)`,
+      [parsed.data.nome, parsed.data.email, senhaHash, parsed.data.ativo, g.id_gestor],
+    );
+  } catch (e) {
+    const erro = e as { code?: string };
+    if (erro.code === "23505") return { ok: false, erro: "Já existe um gestor com este e-mail." };
+    return { ok: false, erro: "Não foi possível cadastrar o gestor." };
+  }
+  return { ok: true };
+}
+
+/**
+ * Confere se é seguro inativar `idAlvo`: nunca a própria conta de quem
+ * pede, e nunca o último gestor ativo (senão ninguém mais administra o
+ * sistema). Retorna a mensagem de erro, ou null se pode inativar.
+ */
+async function motivoNaoPodeInativarGestor(idAlvo: string, idSolicitante: string): Promise<string | null> {
+  if (idAlvo === idSolicitante) return "Você não pode inativar a própria conta.";
+  const { rows } = await db().query<{ total: string }>(
+    `select count(*)::text as total from gestores where ativo = true and id_gestor <> $1`,
+    [idAlvo],
+  );
+  if (Number(rows[0].total) === 0) return "Não é possível inativar o último gestor ativo.";
+  return null;
+}
+
+export async function editarGestor(id: string, input: {
+  nome: string; email: string; senha?: string; ativo: boolean;
+}): Promise<R> {
+  const g = await exigirGestor();
+  const parsed = gestorEdicaoSchema.safeParse(input);
+  if (!parsed.success) return { ok: false, erro: parsed.error.issues[0].message };
+
+  if (!parsed.data.ativo) {
+    const motivo = await motivoNaoPodeInativarGestor(id, g.id_gestor);
+    if (motivo) return { ok: false, erro: motivo };
+  }
+
+  const pool = db();
+  const { rows: outro } = await pool.query<{ id_gestor: string }>(
+    `select id_gestor from gestores where lower(email) = lower($1) and id_gestor <> $2`,
+    [parsed.data.email, id],
+  );
+  if (outro[0]) return { ok: false, erro: "E-mail já usado por outro gestor." };
+
+  try {
+    if (parsed.data.senha) {
+      const senhaHash = await hashSenha(parsed.data.senha);
+      await pool.query(
+        `update gestores set nome = $1, email = $2, senha_hash = $3, ativo = $4, updated_by = $5 where id_gestor = $6`,
+        [parsed.data.nome, parsed.data.email, senhaHash, parsed.data.ativo, g.id_gestor, id],
+      );
+    } else {
+      await pool.query(
+        `update gestores set nome = $1, email = $2, ativo = $3, updated_by = $4 where id_gestor = $5`,
+        [parsed.data.nome, parsed.data.email, parsed.data.ativo, g.id_gestor, id],
+      );
+    }
+  } catch (e) {
+    const erro = e as { code?: string };
+    if (erro.code === "23505") return { ok: false, erro: "E-mail já usado por outro gestor." };
+    return { ok: false, erro: "Não foi possível salvar as alterações." };
+  }
+  return { ok: true };
+}
+
+/** Ativa/inativa gestor (nunca exclui fisicamente — mesma regra dos agentes). */
+export async function definirStatusGestor(id: string, ativo: boolean): Promise<R> {
+  const g = await exigirGestor();
+  if (!ativo) {
+    const motivo = await motivoNaoPodeInativarGestor(id, g.id_gestor);
+    if (motivo) return { ok: false, erro: motivo };
+  }
+  try {
+    await db().query(`update gestores set ativo = $1, updated_by = $2 where id_gestor = $3`, [ativo, g.id_gestor, id]);
+  } catch {
+    return { ok: false, erro: "Não foi possível alterar o status." };
   }
   return { ok: true };
 }

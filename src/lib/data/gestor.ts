@@ -130,6 +130,26 @@ export async function listarAgentesOpcoes(): Promise<{ id_agente: string; nome: 
   return rows;
 }
 
+export interface LinhaGestor {
+  id_gestor: string;
+  nome: string;
+  email: string;
+  ativo: boolean;
+  created_at: string;
+  criado_por: string | null;
+}
+
+/** Lista gestores para a página de administração (cadastro entre gestores). */
+export async function listarGestores(): Promise<LinhaGestor[]> {
+  const { rows } = await db().query<LinhaGestor>(
+    `select g.id_gestor, g.nome, g.email, g.ativo, g.created_at, cb.nome as criado_por
+       from gestores g
+       left join gestores cb on cb.id_gestor = g.created_by
+      order by g.nome`,
+  );
+  return rows;
+}
+
 export interface LinhaEmpreendimento {
   id_empreendimento: number;
   id_cidade: number;

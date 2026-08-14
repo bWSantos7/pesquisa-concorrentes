@@ -61,6 +61,29 @@ export const empreendimentoEdicaoSchema = z.object({
   ativo: z.boolean().default(true),
 });
 
+/**
+ * Cadastro de gestor por outro gestor — extensão pedida pelo usuário,
+ * além do escopo original da especificação (que só previa Auth externo).
+ * Senha em texto puro só passa por aqui; nunca é persistida (vira hash
+ * em src/lib/auth/senha.ts antes de chegar ao banco).
+ */
+const senhaSchema = z.string().min(8, "A senha deve ter pelo menos 8 caracteres");
+
+export const gestorSchema = z.object({
+  nome: z.string().trim().min(1, "Nome é obrigatório"),
+  email: z.string().trim().email("E-mail inválido"),
+  senha: senhaSchema,
+  ativo: z.boolean().default(true),
+});
+
+/** Edição de gestor: senha em branco = não altera a senha atual. */
+export const gestorEdicaoSchema = z.object({
+  nome: z.string().trim().min(1, "Nome é obrigatório"),
+  email: z.string().trim().email("E-mail inválido"),
+  senha: z.union([senhaSchema, z.literal("")]).optional(),
+  ativo: z.boolean().default(true),
+});
+
 /** Estoque e vendas: inteiros >= 0 (seções 20 e 21). */
 const inteiroNaoNegativo = z
   .number({ invalid_type_error: "Informe um número inteiro" })
@@ -91,5 +114,7 @@ export type NovoConcorrenteInput = z.infer<typeof novoConcorrenteSchema>;
 export type ConcorrenteEdicaoInput = z.infer<typeof concorrenteEdicaoSchema>;
 export type EmpreendimentoInput = z.infer<typeof empreendimentoSchema>;
 export type EmpreendimentoEdicaoInput = z.infer<typeof empreendimentoEdicaoSchema>;
+export type GestorInput = z.infer<typeof gestorSchema>;
+export type GestorEdicaoInput = z.infer<typeof gestorEdicaoSchema>;
 export type ColetaInput = z.infer<typeof coletaSchema>;
 export type DadosPropriosInput = z.infer<typeof dadosPropriosSchema>;
