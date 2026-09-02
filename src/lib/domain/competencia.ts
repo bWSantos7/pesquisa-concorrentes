@@ -42,6 +42,17 @@ export function primeiroDiaDoMes(ano: number, mes: number): string {
   return `${ano}-${mm}-01`;
 }
 
+/**
+ * Valida uma competência "YYYY-MM-01": formato correto, mês entre 1 e 12 e
+ * ano num intervalo plausível. Usada para conferir a competência escolhida
+ * pelo agente antes de persistir.
+ */
+export function competenciaValida(mesAno: string): boolean {
+  if (!/^\d{4}-\d{2}-01$/.test(mesAno)) return false;
+  const [ano, mes] = mesAno.split("-").map(Number);
+  return mes >= 1 && mes <= 12 && ano >= 2000 && ano <= 2100;
+}
+
 /** "2026-08-01" -> "08/2026" para exibição compacta. */
 export function formatarCompetenciaCurta(mesAno: string): string {
   const [ano, mes] = mesAno.split("-");
