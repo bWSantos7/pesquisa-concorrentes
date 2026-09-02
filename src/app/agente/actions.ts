@@ -11,7 +11,11 @@ import {
   novoConcorrenteSchema,
   coletaSchema,
 } from "@/lib/validation/schemas";
-import { competenciaVigente, formatarCompetenciaCurta } from "@/lib/domain/competencia";
+import {
+  competenciaVigente,
+  competenciaValida,
+  formatarCompetenciaCurta,
+} from "@/lib/domain/competencia";
 import {
   listarRegionais,
   listarCidades,
@@ -108,6 +112,7 @@ export async function salvarColeta(input: {
   id_concorrente: number;
   estoque: number;
   vendas: number;
+  mes_ano?: string;
   atualizar?: boolean;
 }): Promise<
   | { ok: true; data: ResumoColeta }
@@ -118,6 +123,7 @@ export async function salvarColeta(input: {
     id_concorrente: input.id_concorrente,
     estoque: input.estoque,
     vendas: input.vendas,
+    mes_ano: input.mes_ano,
     atualizar: input.atualizar ?? false,
   });
   if (!parsed.success) {
@@ -125,7 +131,11 @@ export async function salvarColeta(input: {
   }
 
   const pool = db();
-  const mes_ano = competenciaVigente();
+  // Competência escolhida pelo agente; se não vier (ou vier inválida), usa a vigente.
+  const mes_ano =
+    parsed.data.mes_ano && competenciaValida(parsed.data.mes_ano)
+      ? parsed.data.mes_ano
+      : competenciaVigente();
 
   // Confere agente ativo (seção 24: agente identificado).
   const { rows: agenteRows } = await pool.query<{ ativo: boolean }>(

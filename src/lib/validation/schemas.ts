@@ -90,12 +90,20 @@ const inteiroNaoNegativo = z
   .int("Somente números inteiros")
   .min(0, "Mínimo 0");
 
-/** Registro de coleta (seções 22–24). mes_ano é definido no servidor. */
+/**
+ * Registro de coleta (seções 22–24).
+ * mes_ano: competência escolhida pelo agente no formato YYYY-MM-01. É
+ * opcional — quando ausente, o servidor usa a competência vigente.
+ */
 export const coletaSchema = z.object({
   id_agente: z.string().uuid(),
   id_concorrente: z.number().int().positive(),
   estoque: inteiroNaoNegativo,
   vendas: inteiroNaoNegativo,
+  mes_ano: z
+    .string()
+    .regex(/^\d{4}-\d{2}-01$/, "Competência inválida")
+    .optional(),
   /** Quando true, atualiza coleta existente do mês (seção 23). */
   atualizar: z.boolean().default(false),
 });

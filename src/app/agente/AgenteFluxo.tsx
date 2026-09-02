@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import Modal from "@/components/Modal";
+import { formatarCompetenciaLonga } from "@/lib/domain/competencia";
 import {
   identificarAgente,
   actRegionais,
@@ -16,7 +17,7 @@ import {
 
 type Opcao = { valor: string; texto: string };
 
-export default function AgenteFluxo({ competenciaLabel }: { competenciaLabel: string }) {
+export default function AgenteFluxo({ competenciaInicial }: { competenciaInicial: string }) {
   const [agente, setAgente] = useState<AgenteSessao | null>(null);
 
   if (!agente) {
@@ -25,7 +26,7 @@ export default function AgenteFluxo({ competenciaLabel }: { competenciaLabel: st
   return (
     <Formulario
       agente={agente}
-      competenciaLabel={competenciaLabel}
+      competenciaInicial={competenciaInicial}
       onTrocarAgente={() => setAgente(null)}
     />
   );
@@ -81,13 +82,20 @@ function Login({ onOk }: { onOk: (a: AgenteSessao) => void }) {
 /* ----------------------------- Formulário ---------------------------- */
 function Formulario({
   agente,
-  competenciaLabel,
+  competenciaInicial,
   onTrocarAgente,
 }: {
   agente: AgenteSessao;
-  competenciaLabel: string;
+  competenciaInicial: string;
   onTrocarAgente: () => void;
 }) {
+  // Competência escolhida pelo agente ("YYYY-MM"); começa no mês vigente.
+  const [competencia, setCompetencia] = useState(competenciaInicial);
+  const competenciaMesAno = `${competencia}-01`;
+  const competenciaLabel = /^\d{4}-\d{2}$/.test(competencia)
+    ? formatarCompetenciaLonga(competenciaMesAno)
+    : "—";
+
   const [regionais, setRegionais] = useState<Opcao[]>([]);
   const [cidades, setCidades] = useState<Opcao[]>([]);
   const [emps, setEmps] = useState<Opcao[]>([]);
@@ -145,12 +153,17 @@ function Formulario({
       setErro("Selecione o concorrente e informe estoque e vendas.");
       return;
     }
+    if (!/^\d{4}-\d{2}$/.test(competencia)) {
+      setErro("Selecione a competência (mês/ano).");
+      return;
+    }
     setSalvando(true);
     const r = await salvarColeta({
       id_agente: agente.id_agente,
       id_concorrente: Number(idConc),
       estoque: Number(estoque),
       vendas: Number(vendas),
+      mes_ano: competenciaMesAno,
       atualizar,
     });
     setSalvando(false);
@@ -200,8 +213,16 @@ function Formulario({
         <button className="btn-ghost" onClick={onTrocarAgente}>Trocar agente</button>
       </div>
 
-      <div className="mb-4 rounded-xl bg-brand/5 px-4 py-3 text-sm text-brand">
-        Competência: <strong>{competenciaLabel}</strong>
+      <div className="mb-4 rounded-xl bg-brand/5 px-4 py-3">
+        <label className="rotulo" htmlFor="competencia">Competência</label>
+        <input
+          id="competencia"
+          type="month"
+          className="campo !px-2 !py-2 !text-sm"
+          value={competencia}
+          onChange={(e) => setCompetencia(e.target.value)}
+        />
+        <p className="mt-1 text-xs text-brand">{competenciaLabel}</p>
       </div>
 
       <div className="grid gap-4">
