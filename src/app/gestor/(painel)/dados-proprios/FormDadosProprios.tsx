@@ -2,7 +2,9 @@
 
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
-import { salvarDadosProprios } from "../../actions";
+import DialogoConfirmacao from "@/components/DialogoConfirmacao";
+import { formatarCompetenciaLonga } from "@/lib/domain/competencia";
+import { salvarDadosProprios, excluirDadosProprios } from "../../actions";
 
 type Item = { id: number; nome: string };
 
@@ -24,12 +26,17 @@ export default function FormDadosProprios({
   const [erro, setErro] = useState<string | null>(null);
   const [ok, setOk] = useState(false);
   const [salvando, setSalvando] = useState(false);
+  const [confirmandoExclusao, setConfirmandoExclusao] = useState(false);
+  const [erroExcluir, setErroExcluir] = useState<string | null>(null);
+  const [excluindo, setExcluindo] = useState(false);
 
   // Ressincroniza quando a seleção (e portanto os dados atuais) muda.
   useEffect(() => {
     setEstoque(atual ? String(atual.estoque) : "");
     setVendas(atual ? String(atual.vendas) : "");
     setOk(false);
+    setConfirmandoExclusao(false);
+    setErroExcluir(null);
   }, [atual, idEmp, mesAno]);
 
   function navegar(next: Partial<{ mes: string; regional: string; cidade: string; emp: string }>) {
@@ -59,6 +66,19 @@ export default function FormDadosProprios({
     setSalvando(false);
     if (r.ok) { setOk(true); router.refresh(); }
     else setErro(r.erro);
+  }
+
+  async function excluir() {
+    setErroExcluir(null);
+    setExcluindo(true);
+    const r = await excluirDadosProprios(Number(idEmp), mesAno);
+    setExcluindo(false);
+    if (r.ok) {
+      setConfirmandoExclusao(false);
+      router.refresh();
+    } else {
+      setErroExcluir(r.erro);
+    }
   }
 
   return (
@@ -116,10 +136,37 @@ export default function FormDadosProprios({
           )}
           {erro && <p role="alert" className="rounded-lg bg-red-50 px-4 py-3 text-sm text-red-700">{erro}</p>}
           {ok && <p className="rounded-lg bg-brand/10 px-4 py-3 text-sm text-brand">Dados salvos.</p>}
-          <button className="btn-primary !py-3" onClick={salvar} disabled={salvando}>
-            {salvando ? "Salvando…" : "Salvar dados próprios"}
-          </button>
+          <div className="flex flex-wrap gap-3">
+            <button className="btn-primary !py-3" onClick={salvar} disabled={salvando}>
+              {salvando ? "Salvando…" : "Salvar dados próprios"}
+            </button>
+            {atual && (
+              <button
+                className="rounded-xl border border-red-200 px-4 py-3 font-medium text-red-600 hover:bg-red-50"
+                onClick={() => setConfirmandoExclusao(true)}
+              >
+                Excluir registro
+              </button>
+            )}
+          </div>
         </>
+      )}
+
+      {confirmandoExclusao && (
+        <DialogoConfirmacao
+          titulo="Excluir dados próprios"
+          mensagem={
+            <>
+              Excluir o registro de estoque e vendas próprios desta competência
+              ({formatarCompetenciaLonga(mesAno)})? A ação fica registrada em auditoria,
+              mas o empreendimento sai do comparativo até novo cadastro.
+            </>
+          }
+          processando={excluindo}
+          erro={erroExcluir}
+          onConfirmar={excluir}
+          onCancelar={() => { setConfirmandoExclusao(false); setErroExcluir(null); }}
+        />
       )}
     </div>
   );

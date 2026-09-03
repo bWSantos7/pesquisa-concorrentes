@@ -108,6 +108,17 @@ export const coletaSchema = z.object({
   atualizar: z.boolean().default(false),
 });
 
+/**
+ * Correção de uma coleta já registrada, pelo Gestor (extensão fora da
+ * especificação). Permite ajustar estoque, vendas e a competência — o
+ * concorrente e o agente da coleta não mudam.
+ */
+export const coletaEdicaoSchema = z.object({
+  estoque: inteiroNaoNegativo,
+  vendas: inteiroNaoNegativo,
+  mes_ano: z.string().regex(/^\d{4}-\d{2}-01$/, "Competência inválida"),
+});
+
 /** Dados próprios do empreendimento (seção 25), cadastrados pelo gestor. */
 export const dadosPropriosSchema = z.object({
   id_empreendimento: z.number().int().positive(),
@@ -125,4 +136,5 @@ export type EmpreendimentoEdicaoInput = z.infer<typeof empreendimentoEdicaoSchem
 export type GestorInput = z.infer<typeof gestorSchema>;
 export type GestorEdicaoInput = z.infer<typeof gestorEdicaoSchema>;
 export type ColetaInput = z.infer<typeof coletaSchema>;
+export type ColetaEdicaoInput = z.infer<typeof coletaEdicaoSchema>;
 export type DadosPropriosInput = z.infer<typeof dadosPropriosSchema>;

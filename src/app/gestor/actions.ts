@@ -6,6 +6,7 @@
  * src/lib/auth); administração via SQL direto após confirmar que o
  * solicitante é gestor ativo.
  */
+import type { PoolClient } from "pg";
 import { cookies } from "next/headers";
 import { redirect } from "next/navigation";
 import { db } from "@/lib/db/pool";
@@ -14,6 +15,7 @@ import { COOKIE_SESSAO, SESSAO_MAX_AGE_SEGUNDOS, criarSessao } from "@/lib/auth/
 import { verificarSenha, hashSenha } from "@/lib/auth/senha";
 import {
   agenteSchema,
+  coletaEdicaoSchema,
   dadosPropriosSchema,
   novoConcorrenteSchema,
   concorrenteEdicaoSchema,
@@ -282,6 +284,110 @@ export async function salvarDadosProprios(input: {
     );
   } catch {
     return { ok: false, erro: "Não foi possível salvar os dados próprios." };
+  }
+  return { ok: true };
+}
+
+/**
+ * Correção de uma coleta já registrada (extensão fora da especificação).
+ * Ajusta estoque, vendas e competência; registra o gestor em atualizado_por.
+ * A unicidade (id_concorrente, mes_ano) continua valendo: mudar a competência
+ * para um mês que já tem coleta do mesmo concorrente é bloqueado.
+ */
+export async function editarColeta(idColeta: string, input: {
+  estoque: number; vendas: number; mes_ano: string;
+}): Promise<R> {
+  const g = await exigirGestor();
+  const parsed = coletaEdicaoSchema.safeParse(input);
+  if (!parsed.success) return { ok: false, erro: parsed.error.issues[0].message };
+
+  try {
+    const { rowCount } = await db().query(
+      `update coletas_mensais
+          set estoque = $1, vendas = $2, mes_ano = $3, atualizado_por = $4
+        where id_coleta = $5`,
+      [parsed.data.estoque, parsed.data.vendas, parsed.data.mes_ano, g.id_gestor, idColeta],
+    );
+    if (!rowCount) return { ok: false, erro: "Coleta não encontrada." };
+  } catch (e) {
+    const erro = e as { code?: string };
+    if (erro.code === "23505") {
+      return { ok: false, erro: "Já existe uma coleta deste concorrente na competência escolhida." };
+    }
+    return { ok: false, erro: "Não foi possível salvar as alterações." };
+  }
+  return { ok: true };
+}
+
+/**
+ * Copia a linha para `exclusoes_auditoria` (quem apagou, quando, snapshot)
+ * antes de o chamador apagá-la de fato. Sempre dentro da mesma transação.
+ */
+async function registrarExclusao(
+  client: PoolClient,
+  entidade: "coleta_mensal" | "dados_proprios_mensal",
+  idRegistro: string,
+  dados: unknown,
+  idGestor: string,
+): Promise<void> {
+  await client.query(
+    `insert into exclusoes_auditoria (entidade, id_registro, dados, excluido_por)
+     values ($1, $2, $3, $4)`,
+    [entidade, idRegistro, JSON.stringify(dados), idGestor],
+  );
+}
+
+/** Exclui uma coleta de concorrente, guardando o snapshot em auditoria. */
+export async function excluirColeta(idColeta: string): Promise<R> {
+  const g = await exigirGestor();
+  const client = await db().connect();
+  try {
+    await client.query("begin");
+    const { rows } = await client.query(
+      `select * from coletas_mensais where id_coleta = $1 for update`,
+      [idColeta],
+    );
+    const registro = rows[0];
+    if (!registro) {
+      await client.query("rollback");
+      return { ok: false, erro: "Coleta não encontrada." };
+    }
+    await registrarExclusao(client, "coleta_mensal", idColeta, registro, g.id_gestor);
+    await client.query(`delete from coletas_mensais where id_coleta = $1`, [idColeta]);
+    await client.query("commit");
+  } catch {
+    await client.query("rollback").catch(() => {});
+    return { ok: false, erro: "Não foi possível excluir a coleta." };
+  } finally {
+    client.release();
+  }
+  return { ok: true };
+}
+
+/** Exclui o registro de dados próprios de um empreendimento numa competência. */
+export async function excluirDadosProprios(idEmpreendimento: number, mesAno: string): Promise<R> {
+  const g = await exigirGestor();
+  const client = await db().connect();
+  try {
+    await client.query("begin");
+    const { rows } = await client.query(
+      `select * from dados_proprios_mensais
+        where id_empreendimento = $1 and mes_ano = $2 for update`,
+      [idEmpreendimento, mesAno],
+    );
+    const registro = rows[0];
+    if (!registro) {
+      await client.query("rollback");
+      return { ok: false, erro: "Não há dados próprios nesta competência." };
+    }
+    await registrarExclusao(client, "dados_proprios_mensal", registro.id_registro, registro, g.id_gestor);
+    await client.query(`delete from dados_proprios_mensais where id_registro = $1`, [registro.id_registro]);
+    await client.query("commit");
+  } catch {
+    await client.query("rollback").catch(() => {});
+    return { ok: false, erro: "Não foi possível excluir o registro." };
+  } finally {
+    client.release();
   }
   return { ok: true };
 }

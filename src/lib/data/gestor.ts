@@ -8,7 +8,9 @@ import { db } from "@/lib/db/pool";
 
 export interface LinhaPesquisa {
   id_coleta: string;
+  id_concorrente: number;
   coletado_em: string;
+  atualizado_em: string;
   agente: string;
   regional: string;
   cidade: string;
@@ -63,7 +65,8 @@ export async function listarPesquisas(f: FiltroPesquisas): Promise<LinhaPesquisa
   const offset = bind(f.offset ?? 0);
 
   const { rows } = await db().query<LinhaPesquisa>(
-    `select cm.id_coleta, cm.coletado_em, cm.mes_ano, cm.estoque, cm.vendas,
+    `select cm.id_coleta, cm.id_concorrente, cm.coletado_em, cm.atualizado_em,
+            cm.mes_ano, cm.estoque, cm.vendas,
             ag.nome as agente, cid.regional, cid.cidade,
             emp.empreendimento, c.concorrente
        from coletas_mensais cm
