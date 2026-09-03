@@ -38,6 +38,31 @@ export async function listarEmpreendimentos(idCidade: number): Promise<Empreendi
   return rows;
 }
 
+export interface EmpreendimentoResumo {
+  id_empreendimento: number;
+  empreendimento: string;
+  id_cidade: number;
+  cidade: string;
+  regional: string;
+}
+
+/**
+ * Todos os empreendimentos ativos com a hierarquia acima (cidade/regional).
+ * Serve o seletor direto do Dashboard — escolher um empreendimento sem
+ * precisar percorrer Regional -> Cidade primeiro.
+ */
+export async function listarEmpreendimentosResumo(): Promise<EmpreendimentoResumo[]> {
+  const { rows } = await db().query<EmpreendimentoResumo>(
+    `select emp.id_empreendimento, emp.empreendimento,
+            emp.id_cidade, cid.cidade, cid.regional
+       from empreendimentos emp
+       join cidades cid on cid.id_cidade = emp.id_cidade
+      where emp.ativo = true
+      order by emp.empreendimento`,
+  );
+  return rows;
+}
+
 export async function listarConcorrentes(idEmpreendimento: number): Promise<Concorrente[]> {
   const { rows } = await db().query<Concorrente>(
     `select id_concorrente, id_empreendimento, concorrente, ativo

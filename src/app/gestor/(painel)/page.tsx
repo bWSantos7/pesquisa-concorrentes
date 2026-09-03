@@ -3,7 +3,7 @@ import { competenciaVigente, formatarCompetenciaLonga } from "@/lib/domain/compe
 import { formatarPercentual } from "@/lib/domain/dashboard";
 import { montarDashboard, montarConsolidado } from "@/lib/data/dashboard";
 import {
-  listarRegionais, listarCidades, listarEmpreendimentos,
+  listarRegionais, listarCidades, listarEmpreendimentos, listarEmpreendimentosResumo,
 } from "@/lib/data/hierarquia";
 import FiltrosDashboard from "./FiltrosDashboard";
 
@@ -19,9 +19,18 @@ export default async function DashboardPage({
   const idCidade = searchParams.cidade ? Number(searchParams.cidade) : undefined;
   const idEmp = searchParams.emp ? Number(searchParams.emp) : undefined;
 
-  const regionais = await listarRegionais();
+  const [regionais, todosEmps] = await Promise.all([
+    listarRegionais(),
+    listarEmpreendimentosResumo(),
+  ]);
   const cidades = regional ? await listarCidades(regional) : [];
   const emps = idCidade ? await listarEmpreendimentos(idCidade) : [];
+
+  // Empreendimento escolhido direto no seletor — usado para preencher
+  // cidade/regional quando vieram vazios da URL (links de dados próprios etc.).
+  const empSelecionado = idEmp ? todosEmps.find((e) => e.id_empreendimento === idEmp) : undefined;
+  const regionalEfetiva = regional || empSelecionado?.regional || "";
+  const idCidadeEfetiva = searchParams.cidade || (empSelecionado ? String(empSelecionado.id_cidade) : "");
 
   const dados = idEmp ? await montarDashboard({ idEmpreendimento: idEmp, mesAno }) : null;
   const consolidado = idEmp
@@ -51,6 +60,13 @@ export default async function DashboardPage({
         regionais={regionais.map((r) => r.regional)}
         cidades={cidades.map((c) => ({ id: c.id_cidade, nome: c.cidade }))}
         emps={emps.map((e) => ({ id: e.id_empreendimento, nome: e.empreendimento }))}
+        todosEmps={todosEmps.map((e) => ({
+          id: e.id_empreendimento,
+          nome: e.empreendimento,
+          idCidade: e.id_cidade,
+          cidade: e.cidade,
+          regional: e.regional,
+        }))}
       />
 
       {!idEmp && consolidado && (
@@ -159,7 +175,7 @@ export default async function DashboardPage({
                 vendas sejam informados nesta competência.
               </p>
               <Link
-                href={`/gestor/dados-proprios?mes=${mesAno}&regional=${encodeURIComponent(regional)}&cidade=${searchParams.cidade ?? ""}&emp=${idEmp}`}
+                href={`/gestor/dados-proprios?mes=${mesAno}&regional=${encodeURIComponent(regionalEfetiva)}&cidade=${idCidadeEfetiva}&emp=${idEmp}`}
                 className="mt-3 inline-block rounded-lg bg-brand px-4 py-2 text-sm font-semibold text-white hover:bg-brandhi"
               >
                 Cadastrar dados próprios
