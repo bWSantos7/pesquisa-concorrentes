@@ -1,7 +1,7 @@
 import Link from "next/link";
 import { competenciaVigente, formatarCompetenciaLonga } from "@/lib/domain/competencia";
 import { formatarPercentual } from "@/lib/domain/dashboard";
-import { montarDashboard } from "@/lib/data/dashboard";
+import { montarDashboard, montarConsolidado } from "@/lib/data/dashboard";
 import {
   listarRegionais, listarCidades, listarEmpreendimentos,
 } from "@/lib/data/hierarquia";
@@ -24,6 +24,15 @@ export default async function DashboardPage({
   const emps = idCidade ? await listarEmpreendimentos(idCidade) : [];
 
   const dados = idEmp ? await montarDashboard({ idEmpreendimento: idEmp, mesAno }) : null;
+  const consolidado = idEmp
+    ? null
+    : await montarConsolidado({ mesAno, regional: regional || undefined, idCidade });
+
+  const escopoLabel = idCidade
+    ? cidades.find((c) => c.id_cidade === idCidade)?.cidade ?? "Cidade selecionada"
+    : regional
+      ? `Regional ${regional}`
+      : "Rede toda";
 
   return (
     <div className="grid gap-6">
@@ -44,10 +53,88 @@ export default async function DashboardPage({
         emps={emps.map((e) => ({ id: e.id_empreendimento, nome: e.empreendimento }))}
       />
 
-      {!idEmp && (
-        <div className="card text-ink/60">
-          Selecione Regional, Cidade e Empreendimento para ver o comparativo.
-        </div>
+      {!idEmp && consolidado && (
+        <section className="grid gap-4">
+          <div>
+            <h2 className="text-lg font-semibold text-ink">
+              Sousa Araújo vs Concorrentes — {escopoLabel}
+            </h2>
+            <p className="text-sm text-ink/50">
+              Consolidado da competência. Selecione um empreendimento nos filtros
+              para abrir o comparativo detalhado.
+            </p>
+          </div>
+
+          <div className="grid grid-cols-2 gap-4 sm:grid-cols-4">
+            <Kpi titulo="Oferta (estoque total)" valor={String(consolidado.ofertaTotal)} />
+            <Kpi titulo="Vendas totais" valor={String(consolidado.vendasTotais)} />
+            <Kpi titulo="VSO de mercado" valor={formatarPercentual(consolidado.vsoMercado)} />
+            <Kpi
+              titulo="Empreendimentos com dados próprios"
+              valor={`${consolidado.empreendimentosComProprios} de ${consolidado.empreendimentosNoEscopo}`}
+              pequeno
+            />
+          </div>
+
+          {consolidado.ofertaTotal === 0 ? (
+            <div className="card text-ink/60" role="status">
+              Sem dados próprios e sem coletas de concorrentes nesta competência
+              ({escopoLabel}).
+            </div>
+          ) : (
+            <>
+              <div className="card overflow-x-auto p-0">
+                <table className="w-full text-sm">
+                  <caption className="sr-only">
+                    Comparativo consolidado de estoque, representatividade, vendas e VSO
+                    entre a rede própria (Sousa Araújo) e os concorrentes em {escopoLabel}.
+                  </caption>
+                  <thead>
+                    <tr className="border-b border-black/[.06] text-left text-ink/50">
+                      <th scope="col" className="px-4 py-3 font-medium">Lado</th>
+                      <th scope="col" className="px-4 py-3 text-right font-medium">Estoque</th>
+                      <th scope="col" className="px-4 py-3 text-right font-medium">Representatividade</th>
+                      <th scope="col" className="px-4 py-3 text-right font-medium">Vendas</th>
+                      <th scope="col" className="px-4 py-3 text-right font-medium">VSO</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    <tr className="border-b border-black/[.04] bg-brand/[.06]">
+                      <th scope="row" className="px-4 py-3 text-left font-medium text-ink">
+                        Sousa Araújo
+                        <span className="ml-2 rounded bg-brand/15 px-2 py-0.5 text-xs text-brand">
+                          próprio
+                        </span>
+                      </th>
+                      <td className="px-4 py-3 text-right tabular-nums">{consolidado.sousa.estoque}</td>
+                      <td className="px-4 py-3 text-right tabular-nums">{formatarPercentual(consolidado.sousa.representatividade)}</td>
+                      <td className="px-4 py-3 text-right tabular-nums">{consolidado.sousa.vendas}</td>
+                      <td className="px-4 py-3 text-right tabular-nums">{formatarPercentual(consolidado.sousa.vso)}</td>
+                    </tr>
+                    <tr className="border-b border-black/[.04]">
+                      <th scope="row" className="px-4 py-3 text-left font-medium text-ink">
+                        Concorrentes
+                      </th>
+                      <td className="px-4 py-3 text-right tabular-nums">{consolidado.concorrentes.estoque}</td>
+                      <td className="px-4 py-3 text-right tabular-nums">{formatarPercentual(consolidado.concorrentes.representatividade)}</td>
+                      <td className="px-4 py-3 text-right tabular-nums">{consolidado.concorrentes.vendas}</td>
+                      <td className="px-4 py-3 text-right tabular-nums">{formatarPercentual(consolidado.concorrentes.vso)}</td>
+                    </tr>
+                  </tbody>
+                </table>
+              </div>
+
+              <p className="text-xs text-ink/50">
+                Amostra: {consolidado.concorrentesComColeta} coleta(s) de concorrentes ·{" "}
+                {consolidado.empreendimentosComProprios} de {consolidado.empreendimentosNoEscopo}{" "}
+                empreendimento(s) com dados próprios nesta competência.
+                {consolidado.sousa.estoque === 0 && (
+                  <> Sem dados próprios cadastrados — o lado Sousa Araújo aparece zerado.</>
+                )}
+              </p>
+            </>
+          )}
+        </section>
       )}
 
       {idEmp && dados && (

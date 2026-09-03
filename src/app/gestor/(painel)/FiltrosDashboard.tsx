@@ -58,7 +58,7 @@ export default function FiltrosDashboard({
         <label className="rotulo">Empreendimento</label>
         <select className="campo !text-base !py-2" value={idEmp} disabled={!idCidade}
           onChange={(e) => navegar({ emp: e.target.value })}>
-          <option value="">Selecione…</option>
+          <option value="">Todos (consolidado)</option>
           {emps.map((e) => <option key={e.id} value={e.id}>{e.nome}</option>)}
         </select>
       </div>
