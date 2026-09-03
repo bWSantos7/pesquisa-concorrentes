@@ -49,6 +49,13 @@ export default function FiltrosDashboard({
     router.push(`/gestor?${params.toString()}`);
   }
 
+  // "Limpar" mantém a competência (eixo principal do dashboard) e zera só a
+  // hierarquia Regional/Cidade/Empreendimento.
+  function limpar() {
+    router.push(`/gestor?mes=${mesAno}`);
+  }
+  const temFiltro = Boolean(regional || idCidade || idEmp);
+
   const mesInput = mesAno.slice(0, 7); // YYYY-MM
 
   // Quando há cidade selecionada, restringe a lista direta a ela; senão mostra
@@ -58,43 +65,51 @@ export default function FiltrosDashboard({
     : todosEmps;
 
   return (
-    <div className="card grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
-      <div>
-        <label className="rotulo">Competência</label>
-        <input type="month" className="campo !px-2 !py-2 !text-sm" value={mesInput}
-          onChange={(e) => navegar({ mes: `${e.target.value}-01` })} />
+    <div className="card grid gap-4">
+      <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+        <div>
+          <label className="rotulo">Competência</label>
+          <input type="month" className="campo !px-2 !py-2 !text-sm" value={mesInput}
+            onChange={(e) => navegar({ mes: `${e.target.value}-01` })} />
+        </div>
+        <div>
+          <label className="rotulo">Regional</label>
+          <select className="campo !text-base !py-2" value={regional}
+            onChange={(e) => navegar({ regional: e.target.value })}>
+            <option value="">Todas</option>
+            {regionais.map((r) => <option key={r} value={r}>{r}</option>)}
+          </select>
+        </div>
+        <div>
+          <label className="rotulo">Cidade</label>
+          <select className="campo !text-base !py-2" value={idCidade} disabled={!regional}
+            onChange={(e) => navegar({ cidade: e.target.value })}>
+            <option value="">{regional ? "Todas" : "Selecione a regional…"}</option>
+            {cidades.map((c) => <option key={c.id} value={c.id}>{c.nome}</option>)}
+          </select>
+        </div>
+        <div>
+          <label className="rotulo">Empreendimento</label>
+          <select className="campo !text-base !py-2" value={idEmp}
+            onChange={(e) => escolherEmpreendimento(e.target.value)}>
+            <option value="">Todos (consolidado)</option>
+            {/* Cascata Regional -> Cidade -> Empreendimento, quando disponível. */}
+            {idCidade
+              ? emps.map((e) => <option key={e.id} value={e.id}>{e.nome}</option>)
+              : empsDiretos.map((e) => (
+                  <option key={e.id} value={e.id}>
+                    {e.nome} — {e.cidade}/{e.regional}
+                  </option>
+                ))}
+          </select>
+        </div>
       </div>
-      <div>
-        <label className="rotulo">Regional</label>
-        <select className="campo !text-base !py-2" value={regional}
-          onChange={(e) => navegar({ regional: e.target.value })}>
-          <option value="">Todas</option>
-          {regionais.map((r) => <option key={r} value={r}>{r}</option>)}
-        </select>
-      </div>
-      <div>
-        <label className="rotulo">Cidade</label>
-        <select className="campo !text-base !py-2" value={idCidade} disabled={!regional}
-          onChange={(e) => navegar({ cidade: e.target.value })}>
-          <option value="">{regional ? "Todas" : "Selecione a regional…"}</option>
-          {cidades.map((c) => <option key={c.id} value={c.id}>{c.nome}</option>)}
-        </select>
-      </div>
-      <div>
-        <label className="rotulo">Empreendimento</label>
-        <select className="campo !text-base !py-2" value={idEmp}
-          onChange={(e) => escolherEmpreendimento(e.target.value)}>
-          <option value="">Todos (consolidado)</option>
-          {/* Cascata Regional -> Cidade -> Empreendimento, quando disponível. */}
-          {idCidade
-            ? emps.map((e) => <option key={e.id} value={e.id}>{e.nome}</option>)
-            : empsDiretos.map((e) => (
-                <option key={e.id} value={e.id}>
-                  {e.nome} — {e.cidade}/{e.regional}
-                </option>
-              ))}
-        </select>
-      </div>
+
+      {temFiltro && (
+        <div>
+          <button className="btn-ghost" onClick={limpar}>Limpar filtros</button>
+        </div>
+      )}
     </div>
   );
 }
