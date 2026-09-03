@@ -4,6 +4,7 @@ import {
 } from "@/lib/data/hierarquia";
 import { formatarCompetenciaCurta } from "@/lib/domain/competencia";
 import FiltrosPesquisas from "./FiltrosPesquisas";
+import AcoesPesquisa from "./AcoesPesquisa";
 
 export const dynamic = "force-dynamic";
 
@@ -123,11 +124,12 @@ export default async function PesquisasPage({
               <th className="px-4 py-3 font-medium">Comp.</th>
               <CabecalhoOrdenavel coluna="estoque" alinhar="right">Estoque</CabecalhoOrdenavel>
               <CabecalhoOrdenavel coluna="vendas" alinhar="right">Vendas</CabecalhoOrdenavel>
+              <th className="px-4 py-3 text-right font-medium">Ações</th>
             </tr>
           </thead>
           <tbody>
             {linhas.length === 0 && (
-              <tr><td colSpan={9} className="px-4 py-8 text-center text-ink/50">
+              <tr><td colSpan={10} className="px-4 py-8 text-center text-ink/50">
                 Nenhuma pesquisa encontrada para os filtros aplicados.
               </td></tr>
             )}
@@ -135,6 +137,12 @@ export default async function PesquisasPage({
               <tr key={l.id_coleta} className="border-b border-black/[.04]">
                 <td className="px-4 py-3 text-ink/70">
                   {new Date(l.coletado_em).toLocaleString("pt-BR")}
+                  {new Date(l.atualizado_em) > new Date(l.coletado_em) && (
+                    <span className="ml-2 rounded bg-black/10 px-1.5 py-0.5 text-xs text-ink/50"
+                      title={`Editado em ${new Date(l.atualizado_em).toLocaleString("pt-BR")}`}>
+                      editado
+                    </span>
+                  )}
                 </td>
                 <td className="px-4 py-3">{l.agente}</td>
                 <td className="px-4 py-3">{l.regional}</td>
@@ -144,6 +152,16 @@ export default async function PesquisasPage({
                 <td className="px-4 py-3">{formatarCompetenciaCurta(l.mes_ano)}</td>
                 <td className="px-4 py-3 text-right tabular-nums">{l.estoque}</td>
                 <td className="px-4 py-3 text-right tabular-nums">{l.vendas}</td>
+                <td className="px-4 py-3 text-right">
+                  <AcoesPesquisa coleta={{
+                    id_coleta: l.id_coleta,
+                    concorrente: l.concorrente,
+                    empreendimento: l.empreendimento,
+                    mes_ano: l.mes_ano,
+                    estoque: l.estoque,
+                    vendas: l.vendas,
+                  }} />
+                </td>
               </tr>
             ))}
           </tbody>
